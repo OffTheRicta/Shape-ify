@@ -190,7 +190,9 @@ class SkyGuide {
         p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
     if (dot(x, y) > math.cos(_rad(25)) ||
         dot(x, z) > math.cos(_rad(25)) ||
-        dot(y, z) > math.cos(_rad(25))) return false;
+        dot(y, z) > math.cos(_rad(25))) {
+      return false;
+    }
     final det = x[0] * (y[1] * z[2] - y[2] * z[1]) +
         x[1] * (y[2] * z[0] - y[0] * z[2]) +
         x[2] * (y[0] * z[1] - y[1] * z[0]);
@@ -253,7 +255,9 @@ class SkyGuide {
       for (var b = a + 1; b < brightStars.length - 1; b++) {
         for (var c = b + 1; c < brightStars.length; c++) {
           if (!independentTrio(brightStars[a], brightStars[b],
-              brightStars[c])) continue;
+              brightStars[c])) {
+            continue;
+          }
           final trio = (1 << a) | (1 << b) | (1 << c);
           final eligible = <int>[];
           for (var site = 0; site < sites.length; site++) {
@@ -262,7 +266,9 @@ class SkyGuide {
             }
           }
           if (eligible.length >= threshold) {
-            for (final i in eligible) compatible[i] = true;
+            for (final i in eligible) {
+              compatible[i] = true;
+            }
             if (compatible.every((value) => value)) return compatible;
           }
         }
