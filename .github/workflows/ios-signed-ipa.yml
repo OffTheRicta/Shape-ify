@@ -1,3 +1,4 @@
+# Signing fix v2: force Apple Distribution for device archives.
 name: Shape-ify iOS signed IPA
 
 on:
@@ -104,6 +105,8 @@ jobs:
               raise ValueError('Expected three Runner bundle IDs; check the committed iOS project')
           settings = (
               'CODE_SIGN_STYLE = Manual;\n\t\t\t\t'
+              'CODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\t'
+              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";\n\t\t\t\t'
               f'DEVELOPMENT_TEAM = {team};\n\t\t\t\t'
               f'PROVISIONING_PROFILE_SPECIFIER = "{profile}";\n\t\t\t\t'
               + needle
@@ -121,6 +124,18 @@ jobs:
           with open(os.environ['RUNNER_TEMP'] + '/ExportOptions.plist', 'wb') as output:
               plistlib.dump(options, output)
           PY
+
+      - name: Check Release signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/Runner.xcodeproj -target Runner \
+            -configuration Release -sdk iphoneos -showBuildSettings \
+            > "$RUNNER_TEMP/shapeify-build-settings.txt"
+          grep -E '^[[:space:]]*(CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER) =' \
+            "$RUNNER_TEMP/shapeify-build-settings.txt"
+          grep -Eq '^[[:space:]]*CODE_SIGN_IDENTITY = Apple Distribution$' \
+            "$RUNNER_TEMP/shapeify-build-settings.txt"
 
       - name: Build signed App Store IPA
         run: >-
