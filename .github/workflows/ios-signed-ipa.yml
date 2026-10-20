@@ -1,0 +1,150 @@
+name: Shape-ify iOS signed IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-release:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Show Apple toolchain
+        run: xcodebuild -version
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Install signing certificate and provisioning profile
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/shapeify-distribution.p12"
+          profile_path="$RUNNER_TEMP/shapeify-appstore.mobileprovision"
+          profile_plist="$RUNNER_TEMP/shapeify-profile.plist"
+          keychain_path="$RUNNER_TEMP/shapeify-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$profile_path"
+          test -s "$certificate_path"
+          test -s "$profile_path"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" | grep -q 'Apple Distribution'
+
+          security cms -D -i "$profile_path" > "$profile_plist"
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
+          team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
+          application_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+          if [[ "$application_id" != "$team_id.info.roundhound.shapeify" ]]; then
+            echo 'Provisioning profile does not match info.roundhound.shapeify.' >&2
+            exit 1
+          fi
+          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          cp "$profile_path" "$profile_dir/$profile_uuid.mobileprovision"
+          echo "PROFILE_UUID=$profile_uuid" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$team_id" >> "$GITHUB_ENV"
+
+      - name: Configure Runner signing and export options
+        env:
+          BUNDLE_ID: info.roundhound.shapeify
+        run: |
+          python3 - <<'PY'
+          import os
+          import plistlib
+          import re
+          from pathlib import Path
+
+          team = os.environ['TEAM_ID']
+          profile = os.environ['PROFILE_NAME']
+          uuid = os.environ['PROFILE_UUID']
+          bundle = os.environ['BUNDLE_ID']
+          if not re.fullmatch(r'[A-Z0-9]{10}', team):
+              raise ValueError('Unexpected Apple Team ID')
+          if not re.fullmatch(r'[A-Za-z0-9 ._-]+', profile):
+              raise ValueError('Unexpected provisioning profile name')
+
+          project = Path('ios/Runner.xcodeproj/project.pbxproj')
+          source = project.read_text()
+          needle = f'PRODUCT_BUNDLE_IDENTIFIER = {bundle};'
+          if source.count(needle) != 3:
+              raise ValueError('Expected three Runner bundle IDs; check the committed iOS project')
+          settings = (
+              'CODE_SIGN_STYLE = Manual;\n\t\t\t\t'
+              f'DEVELOPMENT_TEAM = {team};\n\t\t\t\t'
+              f'PROVISIONING_PROFILE_SPECIFIER = "{profile}";\n\t\t\t\t'
+              + needle
+          )
+          project.write_text(source.replace(needle, settings))
+
+          options = {
+              'method': 'app-store-connect',
+              'destination': 'export',
+              'signingStyle': 'manual',
+              'signingCertificate': 'Apple Distribution',
+              'teamID': team,
+              'provisioningProfiles': {bundle: uuid},
+          }
+          with open(os.environ['RUNNER_TEMP'] + '/ExportOptions.plist', 'wb') as output:
+              plistlib.dump(options, output)
+          PY
+
+      - name: Build signed App Store IPA
+        run: >-
+          flutter build ipa --release
+          --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+          --dart-define=SHAPEIFY_DEMO=false
+          --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeify-ios-signed-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary signing files
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/shapeify-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/shapeify-distribution.p12" \
+                "$RUNNER_TEMP/shapeify-appstore.mobileprovision" \
+                "$RUNNER_TEMP/shapeify-profile.plist"
+          if [[ -n "${PROFILE_UUID:-}" ]]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi
