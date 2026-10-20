@@ -1,4 +1,4 @@
-# Signing fix v2: force Apple Distribution for device archives.
+# Signing fix v3: force iPhone-only archive and inspect the finished IPA.
 name: Shape-ify iOS signed IPA
 
 on:
@@ -100,6 +100,13 @@ jobs:
 
           project = Path('ios/Runner.xcodeproj/project.pbxproj')
           source = project.read_text()
+          source, family_count = re.subn(
+              r'\bTARGETED_DEVICE_FAMILY\s*=\s*[^;]+;',
+              'TARGETED_DEVICE_FAMILY = 1;', source,
+          )
+          if family_count < 3:
+              raise ValueError(f'Expected at least three device-family settings; found {family_count}')
+          print(f'Configured {family_count} build configurations for iPhone only')
           needle = f'PRODUCT_BUNDLE_IDENTIFIER = {bundle};'
           if source.count(needle) != 3:
               raise ValueError('Expected three Runner bundle IDs; check the committed iOS project')
@@ -132,9 +139,11 @@ jobs:
           xcodebuild -project ios/Runner.xcodeproj -target Runner \
             -configuration Release -sdk iphoneos -showBuildSettings \
             > "$RUNNER_TEMP/shapeify-build-settings.txt"
-          grep -E '^[[:space:]]*(CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER) =' \
+          grep -E '^[[:space:]]*(CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|TARGETED_DEVICE_FAMILY) =' \
             "$RUNNER_TEMP/shapeify-build-settings.txt"
           grep -Eq '^[[:space:]]*CODE_SIGN_IDENTITY = Apple Distribution$' \
+            "$RUNNER_TEMP/shapeify-build-settings.txt"
+          grep -Eq '^[[:space:]]*TARGETED_DEVICE_FAMILY = 1$' \
             "$RUNNER_TEMP/shapeify-build-settings.txt"
 
       - name: Build signed App Store IPA
@@ -143,6 +152,33 @@ jobs:
           --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
           --dart-define=SHAPEIFY_DEMO=false
           --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+
+      - name: Verify actual IPA supports iPhone only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import plistlib
+          import zipfile
+
+          files = glob.glob('build/ios/ipa/*.ipa')
+          if len(files) != 1:
+              raise SystemExit(f'Expected one IPA; found {files}')
+          with zipfile.ZipFile(files[0]) as archive:
+              plists = [name for name in archive.namelist()
+                        if name.startswith('Payload/') and name.count('/') == 2
+                        and name.endswith('.app/Info.plist')]
+              if len(plists) != 1:
+                  raise SystemExit(f'Expected one main app Info.plist; found {plists}')
+              info = plistlib.loads(archive.read(plists[0]))
+          print('Bundle ID:', info.get('CFBundleIdentifier'))
+          print('Device family:', info.get('UIDeviceFamily'))
+          print('Orientations:', info.get('UISupportedInterfaceOrientations'))
+          if info.get('CFBundleIdentifier') != 'info.roundhound.shapeify':
+              raise SystemExit('Unexpected bundle ID in signed IPA')
+          if info.get('UIDeviceFamily') != [1]:
+              raise SystemExit('Signed IPA still declares iPad support; no artifact uploaded')
+          PY
 
       - name: Upload signed IPA
         uses: actions/upload-artifact@v4
