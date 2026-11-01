@@ -30,7 +30,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
   String observer = '';
   RelayIdentity? relay;
   String? error;
-  bool loading = true, aiming = false, completed = false;
+  bool loading = true, locating = false, aiming = false, completed = false;
+  bool initialGroupOpened = false;
   bool captureInProgress = false;
   int starIndex = 0;
   List<SkyTarget> stars = [];
@@ -57,31 +58,42 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       if (relay != null) observer = relay!.tag;
       await prefs.setString('stationName', observer);
       if (!mounted) return;
-      await _locate();
+      // The first screen is group setup/status. Location can be obtained there
+      // and must never block navigation behind a full-screen spinner.
+      setState(() => loading = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !initialGroupOpened) {
+          initialGroupOpened = true;
+          unawaited(_openSessions());
+        }
+      });
     } catch (e) {
       if (mounted) setState(() { error = 'Could not open local session: $e'; loading = false; });
     }
   }
 
   Future<void> _locate() async {
-    setState(() { loading = true; error = null; position = null; });
+    if (locating) return;
+    setState(() { locating = true; error = null; });
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        throw StateError('Turn on phone location services and try again.');
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        throw StateError('Allow location while using the app to pick stars.');
-      }
-      final fix = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 25),
-          ));
+      final fix = await (() async {
+        if (!await Geolocator.isLocationServiceEnabled()) {
+          throw StateError('Turn on phone location services and try again.');
+        }
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          throw StateError('Allow location while using the app to pick stars.');
+        }
+        return Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 25),
+            ));
+      })().timeout(const Duration(seconds: 35));
       if (!mounted) return;
       position = fix;
       _updateTargets();
@@ -95,9 +107,15 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
         if (!aiming) _syncRelay();
       });
       _syncRelay();
-      setState(() => loading = false);
+      setState(() {});
+    } on TimeoutException {
+      if (mounted) setState(() => error =
+          'Location is taking too long. You can create or join a group now, '
+          'then retry location when the phone is ready.');
     } catch (e) {
-      if (mounted) setState(() { error = '$e'; loading = false; });
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => locating = false);
     }
   }
 
@@ -416,6 +434,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       } else {
         setState(() => error = 'Camera guide opens at the shared time, after dark, when all three stars are visible.');
       }
+    } else if (mounted && position == null) {
+      unawaited(_locate());
     }
   }
 
@@ -507,8 +527,9 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       const Text('Moving to the next star…'),
                     ]))
                   : ActionFirstScroll(
-                      actionId: p == null ? 'locate' : session?.plan == null
-                        ? 'join-group' : completed ? 'view-results' :
+                      actionId: session?.plan == null ? 'join-group' : p == null
+                        ? 'locate' :
+                        completed ? 'view-results' :
                           includedInPlan && plannedWindowOpen && darkNow &&
                           sharedStarsVisibleNow ? 'start-aiming' : null,
                       builder: (scrollController) => ListView(
@@ -521,12 +542,13 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                   const SizedBox(height: 12),
                   if (error != null) Card(color: Theme.of(context).colorScheme.errorContainer,
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(error!))),
-                  if (p == null) FilledButton(onPressed: _locate,
-                      child: const Text('Use my location'))
-                  else if (session?.plan == null) FilledButton.icon(
+                  if (session?.plan == null) FilledButton.icon(
                     onPressed: _openSessions,
                     icon: const Icon(Icons.group_outlined),
                     label: const Text('Create or join a group'))
+                  else if (p == null) FilledButton(
+                    onPressed: locating ? null : _locate,
+                    child: const Text('Use my location'))
                   else if (completed) FilledButton.icon(
                     onPressed: _openRecords,
                     icon: const Icon(Icons.insights_outlined),
@@ -542,6 +564,14 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('View results on website')),
                   const SizedBox(height: 12),
+                  if (p == null) ...[
+                    if (locating) const LinearProgressIndicator(),
+                    Text(locating ? 'Finding your location. Group setup is available now.'
+                      : 'Location is needed before choosing stars.'),
+                    TextButton(onPressed: locating ? null : _locate,
+                      child: const Text('Retry location')),
+                    const SizedBox(height: 8),
+                  ],
                   if (p != null) ...[
                     Text('Location accuracy: about ${p.accuracy.round()} m · Station $observer'),
                     if (session?.plan == null)
@@ -569,7 +599,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                     const SizedBox(height: 10),
                     if (completed) const Card(child: Padding(padding: EdgeInsets.all(14),
                         child: Text('Three stars recorded. The group will publish the results to every phone.'))),
-                    TextButton(onPressed: _locate, child: const Text('Refresh location & stars')),
+                    TextButton(onPressed: locating ? null : _locate,
+                      child: Text(locating ? 'Refreshing location…' : 'Refresh location & stars')),
                   ],
                   const SizedBox(height: 12),
                   const Text('No photo or video is saved. Location, time and sensor direction stay on this phone until you choose to share. Confirm each star with your own eyes.'),

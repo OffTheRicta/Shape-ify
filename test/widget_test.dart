@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/material.dart' show Opacity, ValueKey;
+import 'package:flutter/material.dart' show CircularProgressIndicator, Opacity, ValueKey;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:roundhound/main.dart';
 
@@ -27,15 +27,15 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(opacity('intro-logo'), closeTo(1, 1e-12));
     await tester.pump(const Duration(seconds: 1));
-    // Step beyond the exact animation endpoint, then allow the navigator and
-    // location initialization to build on the following frame.
-    for (var frame = 0; frame < 10 &&
-        find.text('Shape-ify').evaluate().isEmpty; frame++) {
+    // After the intro, group setup is the first visible screen. A location
+    // request must not hold it behind a full-screen spinner.
+    for (var frame = 0; frame < 20 &&
+        find.text('Create group').evaluate().isEmpty; frame++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    // Location is provided by Android/iOS, not by the widget test runner.
-    // A loading indicator may animate indefinitely until that result arrives.
-    expect(find.text('Shape-ify'), findsOneWidget);
-    expect(find.byTooltip('Results & sharing'), findsOneWidget);
+    expect(find.text('Group'), findsOneWidget);
+    expect(find.text('Create group'), findsOneWidget);
+    expect(find.text('Join group'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }

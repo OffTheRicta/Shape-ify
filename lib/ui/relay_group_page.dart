@@ -54,6 +54,9 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       final saved = await RelayStore.read();
       if (saved != null && mounted) {
         setState(() { identity = saved; url.text = saved.url; });
+        if (currentLatitude == null || currentLongitude == null) {
+          await _updateReportedLocation();
+        }
         await _refresh();
       }
     } catch (e) { _showError(e); }
@@ -69,17 +72,13 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       if (!mounted) return;
       final current = identity;
       if (current != null) await RelaySync.apply(current, result);
-      if (mounted) {
-        setState(() { state = result; search = null;
+      if (mounted) setState(() { state = result; search = null;
         blockedCanSeeOtherStars = {}; });
-      }
     } catch (e) {
       if (e.toString().contains('HTTP 410')) {
         await RelayStore.clear();
-        if (mounted) {
-          setState(() { identity = null; state = null; search = null;
+        if (mounted) setState(() { identity = null; state = null; search = null;
           error = _removedNotice(e); });
-        }
       } else { _showError(e); }
     }
     finally { if (mounted) { setState(() => busy = false); } }
@@ -100,14 +99,15 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       final local = await RelaySync.apply(current, result);
       await RelaySync.pushPending(current, result, local);
       result = await client.status(current);
-      if (mounted) setState(() { state = result; error = null; });
+      if (mounted) setState(() {
+        state = result;
+        if (currentLatitude != null && currentLongitude != null) error = null;
+      });
     } catch (e) {
       if (e.toString().contains('HTTP 410')) {
         await RelayStore.clear();
-        if (mounted) {
-          setState(() { identity = null; state = null; search = null;
+        if (mounted) setState(() { identity = null; state = null; search = null;
           error = _removedNotice(e); });
-        }
       } else { _showError(e); }
     } finally { refreshing = false; }
   }
@@ -126,7 +126,12 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
     } catch (e) { _showError(e); }
     finally {
       if (mounted) setState(() => busy = false);
-      if (identity != null) await _refresh();
+      if (identity != null) {
+        if (currentLatitude == null || currentLongitude == null) {
+          await _updateReportedLocation();
+        }
+        await _refresh();
+      }
     }
   }
   Future<void> _updateReportedLocation() async {
@@ -134,10 +139,23 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
     if (current == null || busy) return;
     setState(() { busy = true; error = null; });
     try {
-      final fix = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 25)));
+      final fix = await (() async {
+        if (!await Geolocator.isLocationServiceEnabled()) {
+          throw StateError('Turn on phone location services and try again.');
+        }
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          throw StateError('Allow location while using the app to share your station.');
+        }
+        return Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 25)));
+      })().timeout(const Duration(seconds: 35));
       final result = await RelayClient.forIdentity(current).site(
         current, fix.latitude, fix.longitude);
       await RelaySync.apply(current, result);
@@ -145,6 +163,8 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
         setState(() { currentLatitude = fix.latitude;
           currentLongitude = fix.longitude; state = result; search = null; });
       }
+    } on TimeoutException {
+      _showError(StateError('Location timed out. Try again when the phone has a clear GPS fix.'));
     } catch (e) { _showError(e); }
     finally { if (mounted) { setState(() => busy = false); } }
   }
@@ -177,10 +197,8 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
         final client = RelayClient.forIdentity(current);
         final latest = await client.status(current);
         if (latest['revision'] != revision) {
-          if (mounted) {
-            setState(() { state = latest; search = null;
+          if (mounted) setState(() { state = latest; search = null;
             error = 'Group locations changed. Search again.'; });
-          }
           return;
         }
         if (impossible.isNotEmpty) {
@@ -190,8 +208,7 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
           }
           final updated = await client.status(current);
           await RelaySync.apply(current, updated);
-          if (mounted) {
-            setState(() {
+          if (mounted) setState(() {
             state = updated; search = null; blockedCanSeeOtherStars = {};
             error = '${impossible.map((i) => sites[i]['station']).join(', ')} '
               'cannot ever share a usable three-star set with this group '
@@ -199,7 +216,6 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
               'to find a nearer group when they next connect. Search again '
               'with the remaining members.';
           });
-          }
           return;
         }
       }
@@ -207,10 +223,8 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       final current = identity!;
       final latest = await RelayClient.forIdentity(current).status(current);
       if (latest['revision'] != revision) {
-        if (mounted) {
-          setState(() { state = latest; search = null;
+        if (mounted) setState(() { state = latest; search = null;
           error = 'Group locations changed. Search again.'; });
-        }
         return;
       }
       final otherStars = <String, bool>{};
@@ -257,10 +271,8 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
     try {
       final latest = await RelayClient.forIdentity(current).status(current);
       if (latest['revision'] != searchRevision) {
-        if (mounted) {
-          setState(() { state = latest; search = null;
+        if (mounted) setState(() { state = latest; search = null;
           error = 'Group locations changed. Search again.'; });
-        }
         return;
       }
     } catch (e) { _showError(e); return; }
@@ -315,10 +327,8 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       finally { if (mounted) setState(() => busy = false); }
     }
     await RelayStore.clear();
-    if (mounted) {
-      setState(() { identity = null; state = null; search = null;
+    if (mounted) setState(() { identity = null; state = null; search = null;
       blockedCanSeeOtherStars = {}; });
-    }
   }
   Future<void> _openWebResults(String groupCode) async {
     final page = Uri.https('roundhound.info', '/shapeify/',
