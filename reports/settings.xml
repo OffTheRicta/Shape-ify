@@ -1,0 +1,4 @@
+<xml-fragment xmlns:con="http://eviware.com/soapui/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <con:xmlTemplates xsi:nil="true"/>
+  <con:parameters/>
+</xml-fragment>
