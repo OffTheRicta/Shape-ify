@@ -72,13 +72,17 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       if (!mounted) return;
       final current = identity;
       if (current != null) await RelaySync.apply(current, result);
-      if (mounted) setState(() { state = result; search = null;
-        blockedCanSeeOtherStars = {}; });
+      if (mounted) {
+        setState(() { state = result; search = null;
+          blockedCanSeeOtherStars = {}; });
+      }
     } catch (e) {
       if (e.toString().contains('HTTP 410')) {
         await RelayStore.clear();
-        if (mounted) setState(() { identity = null; state = null; search = null;
-          error = _removedNotice(e); });
+        if (mounted) {
+          setState(() { identity = null; state = null; search = null;
+            error = _removedNotice(e); });
+        }
       } else { _showError(e); }
     }
     finally { if (mounted) { setState(() => busy = false); } }
@@ -101,13 +105,17 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       result = await client.status(current);
       if (mounted) setState(() {
         state = result;
-        if (currentLatitude != null && currentLongitude != null) error = null;
+        if (currentLatitude != null && currentLongitude != null) {
+          error = null;
+        }
       });
     } catch (e) {
       if (e.toString().contains('HTTP 410')) {
         await RelayStore.clear();
-        if (mounted) setState(() { identity = null; state = null; search = null;
-          error = _removedNotice(e); });
+        if (mounted) {
+          setState(() { identity = null; state = null; search = null;
+            error = _removedNotice(e); });
+        }
       } else { _showError(e); }
     } finally { refreshing = false; }
   }
@@ -197,8 +205,10 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
         final client = RelayClient.forIdentity(current);
         final latest = await client.status(current);
         if (latest['revision'] != revision) {
-          if (mounted) setState(() { state = latest; search = null;
-            error = 'Group locations changed. Search again.'; });
+          if (mounted) {
+            setState(() { state = latest; search = null;
+              error = 'Group locations changed. Search again.'; });
+          }
           return;
         }
         if (impossible.isNotEmpty) {
@@ -208,14 +218,16 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
           }
           final updated = await client.status(current);
           await RelaySync.apply(current, updated);
-          if (mounted) setState(() {
-            state = updated; search = null; blockedCanSeeOtherStars = {};
-            error = '${impossible.map((i) => sites[i]['station']).join(', ')} '
-              'cannot ever share a usable three-star set with this group '
-              'majority and were removed. Their phones will explain how '
-              'to find a nearer group when they next connect. Search again '
-              'with the remaining members.';
-          });
+          if (mounted) {
+            setState(() {
+              state = updated; search = null; blockedCanSeeOtherStars = {};
+              error = '${impossible.map((i) => sites[i]['station']).join(', ')} '
+                'cannot ever share a usable three-star set with this group '
+                'majority and were removed. Their phones will explain how '
+                'to find a nearer group when they next connect. Search again '
+                'with the remaining members.';
+            });
+          }
           return;
         }
       }
@@ -223,8 +235,10 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       final current = identity!;
       final latest = await RelayClient.forIdentity(current).status(current);
       if (latest['revision'] != revision) {
-        if (mounted) setState(() { state = latest; search = null;
-          error = 'Group locations changed. Search again.'; });
+        if (mounted) {
+          setState(() { state = latest; search = null;
+            error = 'Group locations changed. Search again.'; });
+        }
         return;
       }
       final otherStars = <String, bool>{};
@@ -271,8 +285,10 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
     try {
       final latest = await RelayClient.forIdentity(current).status(current);
       if (latest['revision'] != searchRevision) {
-        if (mounted) setState(() { state = latest; search = null;
-          error = 'Group locations changed. Search again.'; });
+        if (mounted) {
+          setState(() { state = latest; search = null;
+            error = 'Group locations changed. Search again.'; });
+        }
         return;
       }
     } catch (e) { _showError(e); return; }
@@ -327,8 +343,10 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
       finally { if (mounted) setState(() => busy = false); }
     }
     await RelayStore.clear();
-    if (mounted) setState(() { identity = null; state = null; search = null;
-      blockedCanSeeOtherStars = {}; });
+    if (mounted) {
+      setState(() { identity = null; state = null; search = null;
+        blockedCanSeeOtherStars = {}; });
+    }
   }
   Future<void> _openWebResults(String groupCode) async {
     final page = Uri.https('roundhound.info', '/shapeify/',

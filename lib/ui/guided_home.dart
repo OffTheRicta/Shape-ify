@@ -109,9 +109,11 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       _syncRelay();
       setState(() {});
     } on TimeoutException {
-      if (mounted) setState(() => error =
-          'Location is taking too long. You can create or join a group now, '
-          'then retry location when the phone is ready.');
+      if (mounted) {
+        setState(() => error =
+            'Location is taking too long. You can create or join a group now, '
+            'then retry location when the phone is ready.');
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
