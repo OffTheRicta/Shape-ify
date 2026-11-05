@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - codex/android-parity-38
+      - codex/original-android-parity
     paths:
       - .github/workflows/android-ci.yml
       - tools/configure_android.py
@@ -43,8 +44,6 @@ jobs:
             flutter create --platforms=android --org shapeify.roundhound --project-name roundhound .
           fi
           python3 tools/configure_android.py
-          python3 -m pip install 'Pillow==11.3.0'
-          python3 tools/generate_android_icons.py
       - name: Verify Dart and build installable APK
         run: |
           flutter pub get
@@ -60,3 +59,16 @@ jobs:
           name: shapeify-android-0.1.0+38-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+      - name: Build release packages for private local signing
+        run: |
+          flutter build apk --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+          flutter build appbundle --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+      - name: Upload unsigned release packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeify-android-38-unsigned-release
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
