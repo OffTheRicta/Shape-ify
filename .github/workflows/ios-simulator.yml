@@ -21,19 +21,32 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.5'
           channel: stable
           cache: true
-      - name: Build simulator app
+
+      - name: Find and build Flutter project
         run: |
+          set -euo pipefail
+          echo "GitHub checkout: $GITHUB_WORKSPACE"
+          project_file="$(find "$GITHUB_WORKSPACE" -maxdepth 4 -type f -name pubspec.yaml -print -quit)"
+          if [[ -z "$project_file" ]]; then
+            echo "No pubspec.yaml was checked out. Check the branch and committed files."
+            exit 1
+          fi
+          cd "$(dirname "$project_file")"
+          echo "Building from: $PWD"
           flutter pub get
           flutter build ios --simulator --debug \
             --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
           test -d build/ios/iphonesimulator/Runner.app
-      - name: Package simulator app
-        run: ditto -c -k --keepParent build/ios/iphonesimulator/Runner.app Shape-ify-simulator.zip
+          ditto -c -k --keepParent \
+            build/ios/iphonesimulator/Runner.app \
+            "$GITHUB_WORKSPACE/Shape-ify-simulator.zip"
+
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
         with:
