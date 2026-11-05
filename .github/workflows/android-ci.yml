@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   debug-apk:
@@ -54,30 +54,9 @@ jobs:
             --dart-define=SHAPEIFY_DEMO=false \
             --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
           test -s build/app/outputs/flutter-apk/app-debug.apk
-      - name: Save Android project for source control
-        run: |
-          rm -rf android/.kotlin android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
-          tar -czf android-scaffold.tar.gz \
-            --exclude=android/.gradle \
-            --exclude=android/local.properties \
-            --exclude=android/key.properties \
-            android
-      - name: Check in the verified Android host on the feature branch
-        if: github.ref == 'refs/heads/codex/android-parity-38'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add android
-          git add -f android/gradlew android/gradlew.bat android/gradle/wrapper/gradle-wrapper.jar
-          if ! git diff --cached --quiet; then
-            git commit -m 'Check in verified Shape-ify Android project'
-            git push origin HEAD:codex/android-parity-38
-          fi
-      - name: Upload APK and Android scaffold
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
           name: shapeify-android-0.1.0+38-debug
-          path: |
-            build/app/outputs/flutter-apk/app-debug.apk
-            android-scaffold.tar.gz
+          path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
