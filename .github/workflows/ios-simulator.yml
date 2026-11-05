@@ -2,22 +2,17 @@ name: Shape-ify iOS Simulator
 
 on:
   workflow_dispatch:
-    inputs:
-      mac_arch:
-        description: Architecture reported by uname -m on rented Mac
-        type: choice
-        required: true
-        default: arm64
-        options:
-          - arm64
-          - x86_64
 
 permissions:
   contents: read
 
 jobs:
   build-simulator:
-    runs-on: ${{ inputs.mac_arch == 'x86_64' && 'macos-26-intel' || 'macos-26' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        mac_arch: [arm64, x86_64]
+    runs-on: ${{ matrix.mac_arch == 'x86_64' && 'macos-26-intel' || 'macos-26' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
@@ -40,16 +35,53 @@ jobs:
           cd "$(dirname "$project_file")"
           echo "Building from: $PWD"
           flutter pub get
+          flutter analyze
+          flutter test
           flutter build ios --simulator --debug \
             --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
           test -d build/ios/iphonesimulator/Runner.app
-          ditto -c -k --keepParent \
-            build/ios/iphonesimulator/Runner.app \
-            "$GITHUB_WORKSPACE/Shape-ify-simulator.zip"
+          xcrun lipo -archs build/ios/iphonesimulator/Runner.app/Runner
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/ios/iphonesimulator/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :DTPlatformName' build/ios/iphonesimulator/Runner.app/Info.plist
+          mkdir -p "$GITHUB_WORKSPACE/simulator-package"
+          ditto build/ios/iphonesimulator/Runner.app "$GITHUB_WORKSPACE/simulator-package/Runner.app"
+          cat > "$GITHUB_WORKSPACE/simulator-package/Install-and-Launch.command" <<'INSTALL'
+          #!/bin/bash
+          set -euo pipefail
+          cd "$(dirname "$0")"
+          open -a Simulator
+          if ! xcrun simctl list devices booted | grep -q '(Booted)'; then
+            echo 'Open an iPhone in Simulator, then run this installer again.'
+            read -r -p 'Press Enter to close.'
+            exit 1
+          fi
+          xcrun simctl install booted "$PWD/Runner.app"
+          xcrun simctl launch booted info.roundhound.shapeify
+          echo 'Shape-ify installed and launched in Simulator.'
+          INSTALL
+          chmod +x "$GITHUB_WORKSPACE/simulator-package/Install-and-Launch.command"
+          printf '%s\n' 'Open an iPhone in Xcode Simulator, then double-click Install-and-Launch.command.' 'Use arm64 on Apple Silicon Macs and x86_64 on Intel Macs.' 'This package is for Simulator. Use TestFlight for a real iPhone.' > "$GITHUB_WORKSPACE/simulator-package/READ-ME.txt"
+          ditto -c -k --keepParent "$GITHUB_WORKSPACE/simulator-package" "$GITHUB_WORKSPACE/Shape-ify-simulator.zip"
+      - name: Install and launch in an iPhone simulator
+        run: |
+          set -euo pipefail
+          device_id="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for a in d["devices"].values() for x in a if x.get("isAvailable") and "iPhone" in x["name"]))')"
+          xcrun simctl boot "$device_id"
+          xcrun simctl bootstatus "$device_id" -b
+          xcrun simctl install "$device_id" simulator-package/Runner.app
+          xcrun simctl launch "$device_id" info.roundhound.shapeify
+          sleep 15
+          xcrun simctl io "$device_id" screenshot simulator-launch.png
 
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
         with:
-          name: shapeify-simulator-${{ inputs.mac_arch }}
+          name: shapeify-simulator-${{ matrix.mac_arch }}
           path: Shape-ify-simulator.zip
+          if-no-files-found: error
+      - name: Upload simulator launch screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeify-simulator-launch-${{ matrix.mac_arch }}
+          path: simulator-launch.png
           if-no-files-found: error
