@@ -2,6 +2,16 @@ name: Shape-ify iOS Simulator
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ios-simulator.yml
+      - lib/**
+      - ios/**
+      - assets/**
+      - test/**
+      - pubspec.yaml
+      - pubspec.lock
 
 permissions:
   contents: read
