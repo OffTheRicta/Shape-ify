@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   debug-apk:
@@ -29,6 +29,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.5'
@@ -40,6 +43,8 @@ jobs:
             flutter create --platforms=android --org shapeify.roundhound --project-name roundhound .
           fi
           python3 tools/configure_android.py
+          python3 -m pip install 'Pillow==11.3.0'
+          python3 tools/generate_android_icons.py
       - name: Verify Dart and build installable APK
         run: |
           flutter pub get
@@ -51,11 +56,23 @@ jobs:
           test -s build/app/outputs/flutter-apk/app-debug.apk
       - name: Save Android project for source control
         run: |
+          rm -rf android/.kotlin android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
           tar -czf android-scaffold.tar.gz \
             --exclude=android/.gradle \
             --exclude=android/local.properties \
             --exclude=android/key.properties \
             android
+      - name: Check in the verified Android host on the feature branch
+        if: github.ref == 'refs/heads/codex/android-parity-38'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add android
+          git add -f android/gradlew android/gradlew.bat android/gradle/wrapper/gradle-wrapper.jar
+          if ! git diff --cached --quiet; then
+            git commit -m 'Check in verified Shape-ify Android project'
+            git push origin HEAD:codex/android-parity-38
+          fi
       - name: Upload APK and Android scaffold
         uses: actions/upload-artifact@v4
         with:
