@@ -1,0 +1,57 @@
+name: Shape-ify iOS compile (unsigned)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-compile:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Show Apple toolchain
+        run: xcodebuild -version
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Compile iPhone release without signing
+        run: >-
+          flutter build ios --release --no-codesign
+          --dart-define=SHAPEIFY_DEMO=false
+          --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+
+      - name: Package unsigned output
+        run: >-
+          ditto -c -k --sequesterRsrc --keepParent
+          build/ios/iphoneos/Runner.app
+          build/ios/Shape-ify-unsigned-iphoneos.zip
+
+      - name: Upload unsigned output
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeify-ios-unsigned
+          path: build/ios/Shape-ify-unsigned-iphoneos.zip
+          if-no-files-found: error
+          retention-days: 7
