@@ -1,26 +1,24 @@
-# Shape-ify v0.1.0+36 — Android open-test source
+# Shape-ify v0.1.0+38
 
-This archive updates the existing Shape-ify Flutter project on your Windows
-computer. It contains the Flutter source, tests, artwork, Android resources,
-and iOS resources. It intentionally leaves your generated Android Gradle
-project and private signing files alone. See `BUILD_OPEN_TEST.md` for the exact
-extract and build steps.
+Shape-ify is a Flutter Android/iPhone project for comparing observer ground orientations using measurements of visible stars. Android and iOS build from the same `lib/`, `test/`, and `pubspec.yaml` sources. The application ID on Android is `shapeify.roundhound.info`.
 
-The build script compiles with `SHAPEIFY_DEMO=false` and the hosted PHP relay.
-Members create or join a real group, send approximate station locations,
-receive three shared stars, aim the rear camera, and tap once per star. Each
-phone calculates the result plots from the exchanged observations. Completed
-real groups are published to the Shape-ify web collection.
+## Current build status
 
-Sky planning first seeks a full-group opening within 30 minutes, then
-decreases the required opening attendance in 10% steps.
-The opening requires at least 60% of participants within 30 minutes, with
-at least three observers. It searches later individual chances for up to
-48 hours. The hemisphere's reference
-star is preferred when it does not delay a group; other participants remain
-scheduled for their own later windows within 48 hours. The exact
-policy and catalogue limit are in `STAR_PLANNING.md`.
+- Android: the checked-in Android host builds an **installable debug APK** in GitHub Actions. The `Shape-ify Android parity build` workflow runs `flutter analyze`, `flutter test`, and `flutter build apk --debug`.
+- iOS: the `Shape-ify iOS Simulator` workflow builds the shared Flutter source for simulator testing. An iOS simulator build is **not** a TestFlight release.
+- The startup regression test in `test/widget_test.dart` checks that Create Group and Join Group appear automatically after the introduction, without blocking on location.
+- The CI build uses `SHAPEIFY_DEMO=false` and `SHAPEIFY_RELAY_URL=https://relay.roundhound.info`.
 
-The app shows candidate flat and globe plots. They are visualizations of the
-recorded orientations, not a validated surface fit. The ground-angle solver
-does not assume Earth curvature.
+See [Android parity and signing instructions](docs/ANDROID_PARITY.md) before using the Android build on a device.
+
+## Android release caution
+
+The CI APK is **debug-signed**. It cannot update the installed Play Store app. A Play Store update needs the **existing upload keystore**, the original Android native settings checked against this project, a release AAB, and a version code accepted by Google Play. Keystores and `android/key.properties` must remain local and out of GitHub.
+
+The previously used original Android project archive has **not yet been compared** with this generated, checked-in Android host. Treat platform parity as verified at the Flutter source/build level, **not** as proof that every original Android-native configuration was preserved. Do not overwrite an older local `android/` directory without backing it up or comparing it first.
+
+## Experiment scope
+
+Participants create or join a real group, plan three visible stars, and record rear-camera measurements. Group data are exchanged through the configured relay so each phone can calculate result visualizations. The star planning approach is described in [STAR_PLANNING.md](STAR_PLANNING.md).
+
+Flat and globe plots are visualizations of recorded orientations; they are not a validated surface fit. The ground-angle solver does not assume Earth curvature.
