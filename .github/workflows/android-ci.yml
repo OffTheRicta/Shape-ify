@@ -59,3 +59,16 @@ jobs:
           name: shapeify-android-0.1.0+38-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+      - name: Build release packages for private local signing
+        run: |
+          flutter build apk --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+          flutter build appbundle --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
+      - name: Upload unsigned release packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeify-android-38-unsigned-release
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
