@@ -10,6 +10,42 @@ GRADLE = ROOT / "android/app/build.gradle.kts"
 MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 
 gradle = GRADLE.read_text()
+if "val keystorePropertiesFile" not in gradle:
+    gradle = "import java.util.Properties\n\n" + gradle
+    gradle = gradle.replace(
+        "android {",
+        'val keystorePropertiesFile = rootProject.file("key.properties")\n'
+        'val keystoreProperties = Properties().apply {\n'
+        '    if (keystorePropertiesFile.exists()) {\n'
+        '        keystorePropertiesFile.inputStream().use { load(it) }\n'
+        '    }\n'
+        '}\n\nandroid {',
+        1,
+    )
+    gradle = gradle.replace(
+        "    buildTypes {",
+        '    signingConfigs {\n'
+        '        if (keystorePropertiesFile.exists()) {\n'
+        '            create("release") {\n'
+        '                keyAlias = requireNotNull(keystoreProperties.getProperty("keyAlias"))\n'
+        '                keyPassword = requireNotNull(keystoreProperties.getProperty("keyPassword"))\n'
+        '                storeFile = file(requireNotNull(keystoreProperties.getProperty("storeFile")))\n'
+        '                storePassword = requireNotNull(keystoreProperties.getProperty("storePassword"))\n'
+        '            }\n'
+        '        }\n'
+        '    }\n\n'
+        '    buildTypes {',
+        1,
+    )
+    gradle = gradle.replace(
+        'signingConfig = signingConfigs.getByName("debug")',
+        'if (keystorePropertiesFile.exists()) {\n'
+        '                signingConfig = signingConfigs.getByName("release")\n'
+        '            }',
+        1,
+    )
+    if "signingConfigs.getByName(\"debug\")" in gradle:
+        raise SystemExit("Refusing to sign a release with the debug key")
 gradle, count = re.subn(
     r'(?m)^(\s*applicationId\s*=\s*)"[^"]+"',
     r'\1"shapeify.roundhound.info"',
@@ -53,6 +89,21 @@ manifest = manifest.replace(
 )
 if f'{package_match.group(1)}.MainActivity' not in manifest:
     raise SystemExit("Cannot configure generated MainActivity")
+if 'android:roundIcon=' not in manifest:
+    manifest = manifest.replace(
+        'android:icon="@mipmap/ic_launcher"',
+        'android:icon="@mipmap/ic_launcher"\n        android:roundIcon="@mipmap/ic_launcher_round"',
+        1,
+    )
 MANIFEST.write_text(manifest)
+
+for directory in ("values", "values-night"):
+    path = ROOT / "android/app/src/main/res" / directory / "styles.xml"
+    styles = path.read_text().replace("Theme.Light.NoTitleBar", "Theme.NoTitleBar")
+    styles = styles.replace("?android:colorBackground", "@android:color/black")
+    path.write_text(styles)
+for directory in ("drawable", "drawable-v21"):
+    path = ROOT / "android/app/src/main/res" / directory / "launch_background.xml"
+    path.write_text(path.read_text().replace("@android:color/white", "@android:color/black"))
 
 print(f"Android ID: shapeify.roundhound.info; activity: {package_match.group(1)}.MainActivity")
