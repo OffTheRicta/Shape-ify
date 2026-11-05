@@ -10,7 +10,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
         <activity
-            android:name="shapeify.roundhound.roundhound.MainActivity"
+            android:name="com.example.roundhound.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

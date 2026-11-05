@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - codex/android-parity-38
+      - codex/original-android-parity
     paths:
       - .github/workflows/android-ci.yml
       - tools/configure_android.py
@@ -43,8 +44,6 @@ jobs:
             flutter create --platforms=android --org shapeify.roundhound --project-name roundhound .
           fi
           python3 tools/configure_android.py
-          python3 -m pip install 'Pillow==11.3.0'
-          python3 tools/generate_android_icons.py
       - name: Verify Dart and build installable APK
         run: |
           flutter pub get
