@@ -17,7 +17,7 @@
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
   <key>NSCameraUsageDescription</key><string>Shape-ify shows the sky while you aim at a star. It does not save photos.</string>
   <key>NSMicrophoneUsageDescription</key><string>Shape-ify does not record audio.</string>
-  <key>NSLocationWhenInUseUsageDescription</key><string>Shape-ify chooses stars visible from your location and records where the sighting happened.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Shape-ify uses your location to find stars visible from your observing site, plan observations with your group, and record where you took a measurement.</string>
   <key>NSMotionUsageDescription</key><string>Shape-ify uses motion sensors to estimate the camera angle while aiming.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Shape-ify connects to your group relay on the local network during testing.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
