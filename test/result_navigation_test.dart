@@ -154,7 +154,7 @@ void main() {
     await tester.ensureVisible(find.text('Continue to 3D workspace'));
     await tester.tap(find.text('Continue to 3D workspace'));
     await tester.pump();
-    expect(find.textContaining('reconstruction pending'), findsOneWidget);
+    expect(find.textContaining('fit pending'), findsOneWidget);
     expect(find.byKey(const Key('all-pairs-toggle')), findsOneWidget);
     expect(find.textContaining('1 unique pairs'), findsOneWidget);
     final control = tester.widget<SwitchListTile>(
