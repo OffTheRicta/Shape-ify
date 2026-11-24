@@ -56,6 +56,7 @@ class _ResultPlotsState extends State<ResultPlots> {
   double fittedZoom = 1;
   Offset fittedPan = Offset.zero;
   String? fittedKey;
+  final stageHeader = GlobalKey();
   List<StationPoint>? fitInput;
   SpatialFit? spatialFit;
 
@@ -106,11 +107,17 @@ class _ResultPlotsState extends State<ResultPlots> {
     });
   }
 
-  void _showPlot(bool showGlobe) => setState(() {
-    globe = showGlobe;
-    zoom = 1;
-    pan = Offset.zero;
-  });
+  void _showPlot(bool showGlobe) {
+    setState(() {
+      globe = showGlobe;
+      zoom = 1;
+      pan = Offset.zero;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final header = stageHeader.currentContext;
+      if (header != null) Scrollable.ensureVisible(header);
+    });
+  }
 
   @override Widget build(BuildContext context) {
     final records = widget.stations;
@@ -141,7 +148,7 @@ class _ResultPlotsState extends State<ResultPlots> {
         ? (hasReal ? 'Mixed observations' : 'Simulated observations')
         : 'Real observations';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Every phone builds the same picture',
+      Text('Every phone builds the same picture', key: stageHeader,
         style: Theme.of(context).textTheme.titleLarge),
       const SizedBox(height: 4),
       Wrap(

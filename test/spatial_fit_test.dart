@@ -145,6 +145,10 @@ void main() {
     await tester.ensureVisible(workspace);
     await tester.tap(workspace);
     await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.text('Every phone builds the same picture')).dy,
+      greaterThanOrEqualTo(0),
+    );
     expect(find.textContaining('3D station fit'), findsOneWidget);
     expect(find.textContaining('Baseline RMS disagreement'), findsOneWidget);
     expect(find.text('3 fitted pairs'), findsOneWidget);
