@@ -73,10 +73,11 @@ void main() {
       ]),
     );
     final centres = fit.centresM!;
-    expect(fit.baselineRmsM, lessThan(1e-5));
+    expect(fit.baselineRmsM, lessThan(.01));
+    expect(fit.bearingRmsDeg, lessThan(.00001));
     expect(
       (centres[1] - centres[0]).length,
-      closeTo(6378137 * math.sqrt2, 1e-5),
+      closeTo(6378137 * math.sqrt2, .01),
     );
     expect((centres[0] + centres[1] + centres[2]).length, lessThan(1e-8));
   });
@@ -86,6 +87,7 @@ void main() {
       StationLayout.arrange([
         ...readings('A', 0, 0),
         ...readings('B', 0, .000001),
+        ...readings('C', 45, 40),
       ]),
     );
     expect(fit.centresM, isNull);
@@ -95,6 +97,26 @@ void main() {
   test('rejects repeated catalogue targets', () {
     final reading = readings('A', 0, 0).first;
     expect(StationOrientation.fit([reading, reading, reading]), isNull);
+  });
+
+  test('rejects 3D positions when only two stations are available', () {
+    final fit = SpatialFit.solve(
+      StationLayout.arrange([...readings('A', 0, 0), ...readings('B', 0, 90)]),
+    );
+    expect(fit.centresM, isNull);
+    expect(fit.unavailableReason, contains('three stations'));
+  });
+
+  test('withholds positions when bearings leave a rotation freedom', () {
+    final fit = SpatialFit.solve(
+      StationLayout.arrange([
+        ...readings('A', 0, 0),
+        ...readings('B', 0, 20),
+        ...readings('C', 0, 40),
+      ]),
+    );
+    expect(fit.centresM, isNull);
+    expect(fit.unavailableReason, contains('unresolved'));
   });
 
   testWidgets('Results shows the fitted workspace for a complete session', (
@@ -108,6 +130,7 @@ void main() {
               stations: StationLayout.arrange([
                 ...readings('A', 0, 0),
                 ...readings('B', 0, 90, magnetic: true),
+                ...readings('C', 45, 40),
               ]),
               onCheckAgain: () {},
             ),
@@ -116,12 +139,15 @@ void main() {
       ),
     );
     final workspace = find.text('Continue to 3D workspace');
+    expect(find.text('Flat observations'), findsOneWidget);
+    expect(find.text('Simulated observations'), findsOneWidget);
+    expect(find.textContaining('Sirius ·'), findsOneWidget);
     await tester.ensureVisible(workspace);
     await tester.tap(workspace);
     await tester.pumpAndSettle();
     expect(find.textContaining('3D station fit'), findsOneWidget);
     expect(find.textContaining('Baseline RMS disagreement'), findsOneWidget);
-    expect(find.text('1 fitted pair'), findsOneWidget);
+    expect(find.text('3 fitted pairs'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

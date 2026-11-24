@@ -124,7 +124,8 @@ class _ResultPlotsState extends State<ResultPlots> {
           label: const Text('View results on website')),
       ]);
     }
-    final chosen = records[math.min(selected, records.length - 1)];
+    final selectedIndex = math.min(selected, records.length - 1);
+    final chosen = records[selectedIndex];
     if (globe && !identical(fitInput, records)) {
       fitInput = records;
       spatialFit = SpatialFit.solve(records);
@@ -133,10 +134,28 @@ class _ResultPlotsState extends State<ResultPlots> {
     final fit = globe ? spatialFit : null;
     final solved = fit?.centresM != null;
     final pairCount = records.length * (records.length - 1) ~/ 2;
-    final orientation = fit?.orientations[math.min(selected, records.length - 1)];
+    final orientation = fit?.orientations[selectedIndex];
+    final hasSimulated = records.any((s) => s.observations.any((o) => o.simulated));
+    final hasReal = records.any((s) => s.observations.any((o) => !o.simulated));
+    final measurementLabel = hasSimulated
+        ? (hasReal ? 'Mixed observations' : 'Simulated observations')
+        : 'Real observations';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Every phone builds the same picture',
         style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 4),
+      Wrap(
+        spacing: 12,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(globe
+            ? (solved ? '3D station fit' : '3D workspace (fit pending)')
+            : 'Flat observations',
+            style: Theme.of(context).textTheme.titleMedium),
+          Text(measurementLabel, style: Theme.of(context).textTheme.labelMedium),
+        ],
+      ),
       const SizedBox(height: 8),
       SizedBox(height: 340, child: Card(clipBehavior: Clip.hardEdge,
         child: Stack(children: [
@@ -166,13 +185,13 @@ class _ResultPlotsState extends State<ResultPlots> {
           }),
           onTapDown: (details) {
             final painter = _CandidatePainter(records, globe,
-              flatYaw, flatPitch, 0, selected, zoom, pan, allPairs, fit);
+              flatYaw, flatPitch, 0, selectedIndex, zoom, pan, allPairs, fit);
             final hit = painter.hitTestStation(details.localPosition,
               Size(bounds.maxWidth, bounds.maxHeight));
             if (hit != null) setState(() => selected = hit);
           },
           child: CustomPaint(painter: _CandidatePainter(records, globe,
-            flatYaw, flatPitch, 0, selected, zoom, pan, allPairs, fit),
+            flatYaw, flatPitch, 0, selectedIndex, zoom, pan, allPairs, fit),
             child: const SizedBox.expand()),
         );
           }),
@@ -207,8 +226,8 @@ class _ResultPlotsState extends State<ResultPlots> {
           '${pairCount == 1 ? 'pair' : 'pairs'}'),
         value: allPairs,
         onChanged: (v) => setState(() => allPairs = v)),
-      const Text('Double-tap the plot to refit stations.'),
-      Text('Station ${selected + 1}: ${chosen.observation.observer} · '
+      const Text('Drag to move · pinch to zoom · double-tap to refit'),
+      Text('Station ${selectedIndex + 1}: ${chosen.observation.observer} · '
         '${chosen.observations.length} star readings'
         '${chosen.observation.simulated ? ' · Simulated' : ''}'),
       if (orientation != null)
@@ -234,21 +253,33 @@ class _ResultPlotsState extends State<ResultPlots> {
         Text('Session ID: ${widget.sessionId}',
           style: Theme.of(context).textTheme.bodySmall),
       const SizedBox(height: 8),
-      Text(globe
-        ? (solved ? 'Second view · 3D station fit' : 'Second view · 3D workspace (fit pending)')
-        : 'First view · flat observations',
-        style: Theme.of(context).textTheme.titleLarge),
-      const Text('Original star readings · no inferred surface'),
-      const Text('Drag to move · pinch with two fingers to zoom'),
-      for (var i = 0; i < records.length; i++)
-        TextButton(onPressed: () => setState(() => selected = i),
-          child: Text('${i + 1} · ${records[i].observation.observer}')),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (var i = 0; i < records.length; i++)
+            ChoiceChip(
+              label: Text('${i + 1} · ${records[i].observation.observer}'),
+              selected: selectedIndex == i,
+              onSelected: (_) => setState(() => selected = i),
+            ),
+        ],
+      ),
+      if (!globe)
+        for (final reading in chosen.observations.take(3))
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('${reading.starId} · '
+              '${reading.azimuthDeg.toStringAsFixed(1)}° ${reading.azimuthReference} azimuth · '
+              '${reading.altitudeDeg.toStringAsFixed(1)}° elevation'),
+          ),
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(globe
         ? (solved
           ? 'Patch orientations use the approximate star catalogue and observation UTC. '
-            'GPS baseline lengths, bearings and slopes use WGS84 and reported elevations. '
+            'GPS chord lengths and horizontal bearings use WGS84 and reported elevations. '
             'Baseline RMS disagreement ${fit!.baselineRmsM!.toStringAsFixed(1)} m. '
-            'Centres are relative to their centroid.'
+            'Bearing RMS disagreement ${fit.bearingRmsDeg!.toStringAsFixed(1)}°. '
+            'Centres are relative to their centroid. The fit assumes no baseline slope or surface.'
           : 'Flat GPS reference positions. ${fit?.unavailableReason ?? ''}')
         : 'Flat reference projection of stations and original star rays; no measured ground surface is implied.'))),
       if (widget.description != null) ...[

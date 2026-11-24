@@ -1,6 +1,16 @@
 name: Shape-ify iOS compile (unsigned)
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ios-ci.yml
+      - ios/**
+      - assets/**
+      - lib/**
+      - test/**
+      - pubspec.yaml
+      - pubspec.lock
   workflow_dispatch:
 
 permissions:

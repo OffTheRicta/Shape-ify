@@ -169,27 +169,27 @@ class SpatialFit {
   final List<StationOrientation?> orientations;
   final List<SpatialVector>? centresM;
   final double? baselineRmsM;
+  final double? bearingRmsDeg;
   final String? unavailableReason;
   const SpatialFit._(
     this.orientations,
     this.centresM,
     this.baselineRmsM,
+    this.bearingRmsDeg,
     this.unavailableReason,
   );
 
-  /// Fit directed GPS baselines in the star-derived local ground frames.
-  /// GPS baselines use the WGS84 ellipsoid and reported elevations
-  /// to supply length, bearing and slope. This model-dependent reconstruction
-  /// estimates station poses and cannot independently test that datum.
+  /// Fit free station centres from model-dependent GPS chord lengths and
+  /// horizontal bearings in the independently fitted station frames.
   factory SpatialFit.solve(List<StationPoint> stations) {
     final orientations = List<StationOrientation?>.unmodifiable(
       stations.map((s) => StationOrientation.fit(s.observations)),
     );
     SpatialFit unavailable(String reason) =>
-        SpatialFit._(orientations, null, null, reason);
+        SpatialFit._(orientations, null, null, null, reason);
 
-    if (stations.length < 2) {
-      return unavailable('At least two stations are needed.');
+    if (stations.length < 3) {
+      return unavailable('At least three stations are needed for a 3D fit.');
     }
     if (orientations.contains(null)) {
       return unavailable(
@@ -205,85 +205,265 @@ class SpatialFit {
       );
     }
 
-    // Each endpoint contributes an independent local-frame prediction for
-    // the same baseline. The complete graph has a closed-form least-squares
-    // solution when the centroid is fixed at zero.
-    final centres = List.filled(stations.length, SpatialVector.zero);
-    final edges = <(int, int, SpatialVector, SpatialVector)>[];
+    final baselines = <_Baseline>[];
+    final seed = List.filled(stations.length, SpatialVector.zero);
     for (var i = 0; i < stations.length; i++) {
       for (var j = i + 1; j < stations.length; j++) {
-        final a = stations[i].observation, b = stations[j].observation;
-        final forward = _baseline(a, b, orientations[i]!);
-        final reverse = _baseline(b, a, orientations[j]!);
-        if (forward.length <= a.positionUncertaintyM + b.positionUncertaintyM) {
+        final a = stations[i].observation;
+        final b = stations[j].observation;
+        final chord = _ecef(b) - _ecef(a);
+        final length = chord.length;
+        if (length <= a.positionUncertaintyM + b.positionUncertaintyM) {
           return unavailable(
-            'Two stations are closer than their combined '
-            'reported GPS uncertainty.',
+            'Two stations are closer than their combined reported GPS uncertainty.',
           );
         }
-        final mean = (forward - reverse).scale(.5);
-        centres[i] -= mean;
-        centres[j] += mean;
-        edges.add((i, j, forward, reverse));
+        final forward = _bearing(a, chord, orientations[i]!);
+        final reverse = _bearing(b, chord.scale(-1), orientations[j]!);
+        if (forward == null || reverse == null) {
+          return unavailable(
+            'A GPS baseline has no reliable horizontal bearing.',
+          );
+        }
+        baselines.add(
+          _Baseline(
+            i,
+            j,
+            length,
+            forward,
+            reverse,
+            orientations[i]!.up,
+            orientations[j]!.up,
+          ),
+        );
+        // Start from the average horizontal prediction. Vertical displacement
+        // is a free variable and the seed does not use GPS-derived slope.
+        final delta = (forward - reverse).scale(length / 2 / stations.length);
+        seed[i] -= delta;
+        seed[j] += delta;
       }
     }
 
-    for (var i = 0; i < centres.length; i++) {
-      centres[i] = centres[i].scale(1 / centres.length);
+    final scale = baselines.map((b) => b.length).reduce(math.max);
+    final origin = seed.first;
+    var centres = [for (final p in seed) (p - origin).scale(1 / scale)];
+    final size = (centres.length - 1) * 3;
+    var damping = .001;
+    var system = _FitSystem(size, centres, baselines, scale);
+    for (var iteration = 0; iteration < 100; iteration++) {
+      final step = system.step(damping);
+      if (step == null) break;
+      final next = [
+        SpatialVector.zero,
+        for (var i = 0; i < size; i += 3)
+          centres[i ~/ 3 + 1] +
+              SpatialVector(step[i], step[i + 1], step[i + 2]),
+      ];
+      final trial = _FitSystem(size, next, baselines, scale);
+      if (trial.error < system.error) {
+        centres = next;
+        final improvement = system.error - trial.error;
+        system = trial;
+        damping = math.max(1e-10, damping / 3);
+        if (improvement < 1e-19) break;
+      } else {
+        damping *= 10;
+        if (damping > 1e8) break;
+      }
     }
-    final extent = centres.map((p) => p.length).reduce(math.max);
-    final gpsUncertainty = stations
-        .map((s) => s.observation.positionUncertaintyM)
-        .reduce(math.max);
-    if (extent <= gpsUncertainty / 2) {
-      return unavailable('The fitted layout collapses within GPS uncertainty.');
+    if (!system.resolvesAllPositions) {
+      return unavailable(
+        'The lengths and bearings leave some station positions unresolved.',
+      );
     }
-    var squaredError = 0.0;
-    for (final (i, j, forward, reverse) in edges) {
-      final fitted = centres[j] - centres[i];
-      final a = fitted - forward, b = fitted + reverse;
-      squaredError += a.dot(a) + b.dot(b);
+
+    var squaredLengthError = 0.0;
+    var squaredBearingError = 0.0;
+    for (final baseline in baselines) {
+      final delta = (centres[baseline.j] - centres[baseline.i]).scale(scale);
+      final lengthError = delta.length - baseline.length;
+      squaredLengthError += lengthError * lengthError;
+      final a = baseline.bearingError(delta, reverse: false);
+      final b = baseline.bearingError(delta.scale(-1), reverse: true);
+      if (a == null || b == null || a >= 90 || b >= 90) {
+        return unavailable(
+          'The fitted baselines do not resolve the GPS bearings.',
+        );
+      }
+      squaredBearingError += a * a + b * b;
     }
+    final centroid = centres.reduce((a, b) => a + b).scale(1 / centres.length);
     return SpatialFit._(
       orientations,
-      List.unmodifiable(centres),
-      math.sqrt(squaredError / (2 * edges.length)),
+      List.unmodifiable(centres.map((p) => (p - centroid).scale(scale))),
+      math.sqrt(squaredLengthError / baselines.length),
+      math.sqrt(squaredBearingError / (2 * baselines.length)),
       null,
     );
   }
 
-  static SpatialVector _baseline(
-    Observation a,
-    Observation b,
+  static SpatialVector _ecef(Observation o) {
+    const semiMajorM = 6378137.0;
+    const eccentricitySquared = .0066943799901413165;
+    final latitude = o.latitude * _radians;
+    final longitude = o.longitude * _radians;
+    final sinLat = math.sin(latitude), cosLat = math.cos(latitude);
+    final radius =
+        semiMajorM / math.sqrt(1 - eccentricitySquared * sinLat * sinLat);
+    final horizontal = (radius + o.elevationM) * cosLat;
+    return SpatialVector(
+      horizontal * math.cos(longitude),
+      horizontal * math.sin(longitude),
+      (radius * (1 - eccentricitySquared) + o.elevationM) * sinLat,
+    );
+  }
+
+  static SpatialVector? _bearing(
+    Observation origin,
+    SpatialVector datumChord,
     StationOrientation orientation,
   ) {
-    SpatialVector ecef(Observation o) {
-      const semiMajorM = 6378137.0;
-      const eccentricitySquared = .0066943799901413165;
-      final latitude = o.latitude * _radians;
-      final longitude = o.longitude * _radians;
-      final sinLat = math.sin(latitude), cosLat = math.cos(latitude);
-      final radius =
-          semiMajorM / math.sqrt(1 - eccentricitySquared * sinLat * sinLat);
-      final horizontal = (radius + o.elevationM) * cosLat;
-      return SpatialVector(
-        horizontal * math.cos(longitude),
-        horizontal * math.sin(longitude),
-        (radius * (1 - eccentricitySquared) + o.elevationM) * sinLat,
-      );
-    }
-
-    final lat = a.latitude * _radians, lon = a.longitude * _radians;
-    final datumEast = SpatialVector(-math.sin(lon), math.cos(lon), 0);
-    final datumUp = SpatialVector(
+    final lat = origin.latitude * _radians;
+    final lon = origin.longitude * _radians;
+    final east = SpatialVector(-math.sin(lon), math.cos(lon), 0);
+    final up = SpatialVector(
       math.cos(lat) * math.cos(lon),
       math.cos(lat) * math.sin(lon),
       math.sin(lat),
     );
-    final datumNorth = datumUp.cross(datumEast);
-    final delta = ecef(b) - ecef(a);
-    return orientation.east.scale(delta.dot(datumEast)) +
-        orientation.north.scale(delta.dot(datumNorth)) +
-        orientation.up.scale(delta.dot(datumUp));
+    final north = up.cross(east);
+    final world =
+        orientation.east.scale(datumChord.dot(east)) +
+        orientation.north.scale(datumChord.dot(north));
+    return world.length <= origin.positionUncertaintyM ? null : world.unit;
+  }
+}
+
+class _Baseline {
+  final int i, j;
+  final double length;
+  final SpatialVector forward, reverse, upAtI, upAtJ;
+
+  const _Baseline(
+    this.i,
+    this.j,
+    this.length,
+    this.forward,
+    this.reverse,
+    this.upAtI,
+    this.upAtJ,
+  );
+
+  double? bearingError(SpatialVector delta, {required bool reverse}) {
+    final up = reverse ? upAtJ : upAtI;
+    final target = reverse ? this.reverse : forward;
+    final horizontal = delta - up.scale(up.dot(delta));
+    if (horizontal.length < length * 1e-8) return null;
+    return math.atan2(
+          up.cross(target).dot(horizontal).abs(),
+          target.dot(horizontal),
+        ) /
+        _radians;
+  }
+}
+
+/// Normal equations for the distance and horizontal bearing residuals.
+/// The first centre fixes translation. Distance fixes the scale, and the
+/// star-derived frames supply world axes. Rank is a local conditioning check.
+class _FitSystem {
+  final List<List<double>> normal;
+  final List<double> gradient;
+  double error = 0;
+
+  _FitSystem(
+    int size,
+    List<SpatialVector> centres,
+    List<_Baseline> baselines,
+    double scale,
+  ) : normal = List.generate(size, (_) => List.filled(size, 0.0)),
+      gradient = List.filled(size, 0.0) {
+    for (final b in baselines) {
+      final delta = centres[b.j] - centres[b.i];
+      final length = b.length / scale;
+      final weight = 1 / length;
+      if (delta.length > 1e-12) {
+        _add(
+          b.i,
+          b.j,
+          delta.unit.scale(weight),
+          (delta.length - length) * weight,
+        );
+      }
+      final forwardNormal = b.upAtI.cross(b.forward).scale(weight);
+      final reverseNormal = b.upAtJ.cross(b.reverse).scale(weight);
+      _add(b.i, b.j, forwardNormal, delta.dot(forwardNormal));
+      _add(b.i, b.j, reverseNormal, delta.dot(reverseNormal));
+      final forward = delta.dot(b.forward);
+      final reverse = -delta.dot(b.reverse);
+      if (forward < 0) {
+        _add(b.i, b.j, b.forward.scale(weight), forward * weight);
+      }
+      if (reverse < 0) {
+        _add(b.i, b.j, b.reverse.scale(-weight), reverse * weight);
+      }
+    }
+  }
+
+  void _add(int i, int j, SpatialVector derivative, double residual) {
+    error += residual * residual;
+    final values = [derivative.x, derivative.y, derivative.z];
+    final terms = [
+      for (var axis = 0; axis < 3; axis++) ...[
+        if (i > 0) (3 * (i - 1) + axis, -values[axis]),
+        (3 * (j - 1) + axis, values[axis]),
+      ],
+    ];
+    for (final (row, a) in terms) {
+      gradient[row] += a * residual;
+      for (final (column, b) in terms) {
+        normal[row][column] += a * b;
+      }
+    }
+  }
+
+  bool get resolvesAllPositions => step(0, tolerance: 1e-9) != null;
+
+  List<double>? step(double damping, {double tolerance = 1e-15}) {
+    final count = gradient.length;
+    final rows = [
+      for (var i = 0; i < count; i++) [...normal[i], -gradient[i]],
+    ];
+    var largestDiagonal = 0.0;
+    for (var i = 0; i < count; i++) {
+      largestDiagonal = math.max(largestDiagonal, rows[i][i]);
+      rows[i][i] += damping * math.max(1, rows[i][i]);
+    }
+
+    for (var column = 0; column < count; column++) {
+      var pivot = column;
+      for (var row = column + 1; row < count; row++) {
+        if (rows[row][column].abs() > rows[pivot][column].abs()) pivot = row;
+      }
+      if (rows[pivot][column].abs() <= tolerance * largestDiagonal) return null;
+      final swap = rows[column];
+      rows[column] = rows[pivot];
+      rows[pivot] = swap;
+      for (var row = column + 1; row < count; row++) {
+        final factor = rows[row][column] / rows[column][column];
+        for (var k = column + 1; k <= count; k++) {
+          rows[row][k] -= factor * rows[column][k];
+        }
+      }
+    }
+
+    final result = List.filled(count, 0.0);
+    for (var row = count - 1; row >= 0; row--) {
+      var value = rows[row][count];
+      for (var k = row + 1; k < count; k++) {
+        value -= rows[row][k] * result[k];
+      }
+      result[row] = value / rows[row][row];
+    }
+    return result;
   }
 }

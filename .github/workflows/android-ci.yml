@@ -15,6 +15,17 @@ on:
       - test/**
       - pubspec.yaml
       - pubspec.lock
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/android-ci.yml
+      - tools/configure_android.py
+      - android/**
+      - assets/**
+      - lib/**
+      - test/**
+      - pubspec.yaml
+      - pubspec.lock
   workflow_dispatch:
 
 permissions:
@@ -45,6 +56,7 @@ jobs:
           fi
           python3 tools/configure_android.py
       - name: Verify Dart and build installable APK
+        id: debug
         run: |
           flutter pub get
           flutter analyze
@@ -53,20 +65,23 @@ jobs:
             --dart-define=SHAPEIFY_DEMO=false \
             --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
           test -s build/app/outputs/flutter-apk/app-debug.apk
+          echo "version=$(sed -n 's/^version: *//p' pubspec.yaml)" >> "$GITHUB_OUTPUT"
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: shapeify-android-0.1.0+38-debug
+          name: shapeify-android-${{ steps.debug.outputs.version }}-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
       - name: Build release packages for private local signing
+        if: github.event_name != 'pull_request'
         run: |
           flutter build apk --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
           flutter build appbundle --release --dart-define=SHAPEIFY_DEMO=false --dart-define=SHAPEIFY_RELAY_URL=https://relay.roundhound.info
       - name: Upload unsigned release packages
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: shapeify-android-38-unsigned-release
+          name: shapeify-android-${{ steps.debug.outputs.version }}-unsigned-release
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab
