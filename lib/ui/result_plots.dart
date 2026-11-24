@@ -48,7 +48,7 @@ class ResultViewportFit {
 class _ResultPlotsState extends State<ResultPlots> {
   bool globe = false;
   bool allPairs = false;
-  double flatYaw = .35, flatPitch = .38, globeYaw = 0;
+  double flatYaw = .35, flatPitch = .38;
   int selected = 0;
   double zoom = 1;
   Offset pan = Offset.zero;
@@ -94,7 +94,7 @@ class _ResultPlotsState extends State<ResultPlots> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || key != fittedKey) return;
       final painter = _CandidatePainter(stations, globe,
-        flatYaw, flatPitch, globeYaw, selected, 1, Offset.zero, allPairs);
+        flatYaw, flatPitch, 0, selected, 1, Offset.zero, allPairs);
       final fit = ResultViewportFit.calculate(painter._centres(size), size);
       setState(() {
         fittedZoom = zoom = fit.zoom;
@@ -175,13 +175,7 @@ class _ResultPlotsState extends State<ResultPlots> {
       _compactSlider(context, title: 'Zoom', value: '${zoom.toStringAsFixed(1)}×',
         position: _zoomSliderValue, key: const Key('zoom-slider'),
         onChanged: _setZoomFromSlider),
-      if (globe)
-        _compactSlider(context, title: 'Rotate',
-          value: '${(globeYaw * 180 / math.pi).round()}°',
-          position: (globeYaw + math.pi) / (2 * math.pi),
-          onChanged: (value) => setState(() => globeYaw =
-            value * 2 * math.pi - math.pi))
-      else ...[
+      if (true) ...[
         _compactSlider(context, title: 'Turn',
           value: '${(flatYaw * 180 / math.pi).round()}°',
           position: (flatYaw + math.pi) / (2 * math.pi),
@@ -263,11 +257,6 @@ class _CandidatePainter extends CustomPainter {
     return Offset(size.width / 2 + pan.dx + x * size.width * .21 * zoom,
       size.height / 2 + pan.dy - y * size.height * .23 * zoom);
   }
-  Offset _globe(_P3 p, Size size) {
-    final radius = math.min(size.width, size.height) * .38 * zoom;
-    return Offset(size.width / 2 + pan.dx + p.x * radius,
-      size.height / 2 + pan.dy - p.y * radius);
-  }
   void _line(Canvas canvas, Offset a, Offset b, Color color,
       {double stroke = 2}) => canvas.drawLine(a, b,
     Paint()..color = color..strokeWidth = stroke);
@@ -289,12 +278,6 @@ class _CandidatePainter extends CustomPainter {
     canvas.drawPath(path, Paint()..color = color.withValues(alpha: .38 * opacity));
     canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity)
       ..style = PaintingStyle.stroke..strokeWidth = 1.5);
-  }
-  (StationPoint, double, double, double) _stationEntry(
-      StationPoint station, double firstLon) {
-    final lat = station.observation.latitude * math.pi / 180;
-    final lon = (station.observation.longitude - firstLon) * math.pi / 180 - spin;
-    return (station, lat, lon, math.cos(lat) * math.cos(lon));
   }
   List<Offset> _centres(Size size) {
     if (stations.isEmpty) return [];
