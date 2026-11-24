@@ -154,13 +154,13 @@ class _ResultPlotsState extends State<ResultPlots> {
           }),
           onTapDown: (details) {
             final painter = _CandidatePainter(records, globe,
-              flatYaw, flatPitch, globeYaw, selected, zoom, pan, allPairs);
+              flatYaw, flatPitch, 0, selected, zoom, pan, allPairs);
             final hit = painter.hitTestStation(details.localPosition,
               Size(bounds.maxWidth, bounds.maxHeight));
             if (hit != null) setState(() => selected = hit);
           },
           child: CustomPaint(painter: _CandidatePainter(records, globe,
-            flatYaw, flatPitch, globeYaw, selected, zoom, pan, allPairs),
+            flatYaw, flatPitch, 0, selected, zoom, pan, allPairs),
             child: const SizedBox.expand()),
         );
           }),
@@ -175,7 +175,7 @@ class _ResultPlotsState extends State<ResultPlots> {
       _compactSlider(context, title: 'Zoom', value: '${zoom.toStringAsFixed(1)}×',
         position: _zoomSliderValue, key: const Key('zoom-slider'),
         onChanged: _setZoomFromSlider),
-      if (true) ...[
+      ...[
         _compactSlider(context, title: 'Turn',
           value: '${(flatYaw * 180 / math.pi).round()}°',
           position: (flatYaw + math.pi) / (2 * math.pi),
