@@ -301,11 +301,7 @@ class _CandidatePainter extends CustomPainter {
     final lon = stations.first.observation.longitude;
     final lat = stations.first.observation.latitude;
     return [for (final station in stations)
-      globe ? _globe(_P3(
-        math.cos(station.observation.latitude * math.pi / 180) *
-          math.sin((station.observation.longitude - lon) * math.pi / 180 - spin),
-        math.sin(station.observation.latitude * math.pi / 180), 0), size)
-      : _flat(_P3(
+      _flat(_P3(
         ((station.observation.longitude - lon + 540) % 360 - 180) / 70,
         (station.observation.latitude - lat) / 55, 0), size)];
   }
