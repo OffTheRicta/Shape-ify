@@ -1,5 +1,5 @@
 name: roundhound
-version: 0.1.40+40
+version: 0.1.41+41
 description: Phone-only star and ground-angle experiment with a message relay.
 publish_to: none
 environment:

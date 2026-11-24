@@ -45,12 +45,11 @@ void main() {
     expect(tester.getTopLeft(zoom).dy, lessThan(tester.getTopLeft(web).dy));
     expect(tester.getTopLeft(web).dy,
       lessThan(tester.getTopLeft(explanation).dy));
-    expect(find.text('Gold: selected  ·  Cyan: stations  ·  3 rays each'), findsOneWidget);
+    expect(find.text('Gold marks the selected station'), findsOneWidget);
     await tester.ensureVisible(find.text('Continue to 3D workspace'));
     await tester.tap(find.text('Continue to 3D workspace'));
     await tester.pump();
-    expect(find.text('Gold: selected  ·  Cyan: stations  ·  3 rays each'),
-      findsOneWidget);
+    expect(find.text('Gold marks the selected station'), findsOneWidget);
   });
 
   testWidgets('web action reports the currently visible candidate', (tester) async {
@@ -156,7 +155,7 @@ void main() {
     await tester.pump();
     expect(find.textContaining('fit pending'), findsOneWidget);
     expect(find.byKey(const Key('all-pairs-toggle')), findsOneWidget);
-    expect(find.textContaining('1 unique pairs'), findsOneWidget);
+    expect(find.text('1 reference pair'), findsOneWidget);
     final control = tester.widget<SwitchListTile>(
       find.byKey(const Key('all-pairs-toggle')));
     control.onChanged!(true);
