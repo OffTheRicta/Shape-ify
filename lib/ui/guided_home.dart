@@ -17,6 +17,7 @@ import 'home.dart';
 import 'relay_group_page.dart';
 import 'gauges.dart';
 import 'scroll_cues.dart';
+import 'welcome_home.dart';
 
 class GuidedHome extends StatefulWidget {
   const GuidedHome({super.key});
@@ -31,7 +32,6 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
   RelayIdentity? relay;
   String? error;
   bool loading = true, locating = false, aiming = false, completed = false;
-  bool initialGroupOpened = false;
   bool captureInProgress = false;
   int starIndex = 0;
   List<SkyTarget> stars = [];
@@ -58,15 +58,12 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       if (relay != null) observer = relay!.tag;
       await prefs.setString('stationName', observer);
       if (!mounted) return;
-      // The first screen is group setup/status. Location can be obtained there
-      // and must never block navigation behind a full-screen spinner.
       setState(() => loading = false);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !initialGroupOpened) {
-          initialGroupOpened = true;
-          unawaited(_openSessions());
-        }
-      });
+      if (relay != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openSessions());
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { error = 'Could not open local session: $e'; loading = false; });
     }
@@ -404,7 +401,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openSessions() async {
+  Future<void> _openSessions([GroupEntry? entry]) async {
     if (aiming) {
       await _stopCamera();
       if (!mounted) return;
@@ -413,7 +410,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     if (!mounted) return;
     final openCamera = await Navigator.push<bool>(context,
         MaterialPageRoute(builder: (_) => RelayGroupPage(
-          latitude: position?.latitude, longitude: position?.longitude)));
+          latitude: position?.latitude, longitude: position?.longitude, entry: entry)));
     final current = await SessionRepository.active();
     final newRelay = await RelayStore.read();
     if (mounted) {
@@ -436,9 +433,31 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       } else {
         setState(() => error = 'Camera guide opens at the shared time, after dark, when all three stars are visible.');
       }
-    } else if (mounted && position == null) {
+    } else if (mounted && position == null && (newRelay != null || current.plan != null)) {
       unawaited(_locate());
     }
+  }
+
+  void _openSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          children: [
+            Text('Settings', style: Theme.of(context).textTheme.titleLarge),
+            ListTile(
+              leading: const Icon(Icons.location_on_outlined),
+              title: const Text('Location, camera and motion permissions'),
+              subtitle: const Text('Manage Shape-ify permissions in your phone’s settings.'),
+              onTap: Geolocator.openAppSettings,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override void dispose() {
@@ -453,6 +472,22 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
 
   @override Widget build(BuildContext context) {
     final p = position;
+    if (!loading && !aiming && session?.plan == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xff080d18),
+        body: SafeArea(
+          child: WelcomeHome(
+            groupCode: relay?.code,
+            hasLocation: p != null,
+            error: error,
+            onGroup: () => _openSessions(relay == null ? GroupEntry.create : null),
+            onJoin: () => _openSessions(GroupEntry.join),
+            onResults: _openRecords,
+            onSettings: _openSettings,
+          ),
+        ),
+      );
+    }
     final target = aiming && p != null && starIndex < stars.length
         ? SkyGuide.horizontal(stars[starIndex].star, p.latitude, p.longitude,
             DateTime.now().toUtc()) : null;
@@ -537,18 +572,12 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       builder: (scrollController) => ListView(
                         controller: scrollController,
                         padding: const EdgeInsets.all(20), children: [
-                  Text(session?.plan == null
-                      ? 'Join a group to choose stars together'
-                      : 'The group will use these same 3 stars',
+                  Text('The group will use these same 3 stars',
                       style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 12),
                   if (error != null) Card(color: Theme.of(context).colorScheme.errorContainer,
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(error!))),
-                  if (session?.plan == null) FilledButton.icon(
-                    onPressed: _openSessions,
-                    icon: const Icon(Icons.group_outlined),
-                    label: const Text('Create or join a group'))
-                  else if (p == null) FilledButton(
+                  if (p == null) FilledButton(
                     onPressed: locating ? null : _locate,
                     child: const Text('Use my location'))
                   else if (completed) FilledButton.icon(
@@ -576,8 +605,6 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                   ],
                   if (p != null) ...[
                     Text('Location accuracy: about ${p.accuracy.round()} m · Station $observer'),
-                    if (session?.plan == null)
-                      const Text('Share an approximate location with the organizer, then import the group sky plan.'),
                     if (session?.plan != null && !includedInPlan)
                       const Text('Your station is outside this plan because it has no dark sky at the shared time. Your location report is still saved; ask the organizer for a later group plan.'),
                     const SizedBox(height: 8),
