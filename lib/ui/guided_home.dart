@@ -30,7 +30,6 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
   RelayIdentity? relay;
   String? error;
   bool loading = true, locating = false, aiming = false, completed = false;
-  bool initialGroupOpened = false;
   bool captureInProgress = false;
   int starIndex = 0;
   List<SkyTarget> stars = [];
@@ -57,15 +56,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       if (relay != null) observer = relay!.tag;
       await prefs.setString('stationName', observer);
       if (!mounted) return;
-      // The first screen is group setup/status. Location can be obtained there
-      // and must never block navigation behind a full-screen spinner.
       setState(() => loading = false);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !initialGroupOpened) {
-          initialGroupOpened = true;
-          unawaited(_openSessions());
-        }
-      });
     } catch (e) {
       if (mounted) setState(() { error = 'Could not open local session: $e'; loading = false; });
     }
@@ -403,7 +394,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openSessions() async {
+  Future<void> _openSessions({bool? create}) async {
     if (aiming) {
       await _stopCamera();
       if (!mounted) return;
@@ -412,7 +403,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     if (!mounted) return;
     final openCamera = await Navigator.push<bool>(context,
         MaterialPageRoute(builder: (_) => RelayGroupPage(
-          latitude: position?.latitude, longitude: position?.longitude)));
+          latitude: position?.latitude, longitude: position?.longitude,
+          createOnEntry: create)));
     final current = await SessionRepository.active();
     final newRelay = await RelayStore.read();
     if (mounted) {
@@ -448,6 +440,65 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     magnetometerSubscription?.cancel();
     camera?.dispose();
     super.dispose();
+  }
+
+  Widget _homePanel(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget action({
+      required String title,
+      required String subtitle,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool primary = false,
+    }) => Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: primary
+          ? const BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xFF873CD2), Color(0xFF462173)]))
+          : null,
+        child: ListTile(
+          leading: Icon(icon, color: Colors.white),
+          title: Text(title, style: theme.textTheme.titleLarge),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      ),
+    );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const SizedBox(height: 16),
+      Text('Shape-ify', textAlign: TextAlign.center,
+        style: theme.textTheme.displaySmall?.copyWith(
+          fontWeight: FontWeight.w800, fontStyle: FontStyle.italic)),
+      const Text('Measure · Construct · Conclude', textAlign: TextAlign.center),
+      const SizedBox(height: 12),
+      const SizedBox(height: 116, child: CustomPaint(painter: _HomeHorizon())),
+      Text('Turn real-world observations into surface geometry',
+        textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
+      const SizedBox(height: 20),
+      if (relay != null)
+        action(title: 'Open Group', subtitle: relay!.code,
+          icon: Icons.groups_outlined, primary: true, onTap: _openSessions)
+      else ...[
+        action(title: 'Create Group', subtitle: 'I’m the organiser',
+          icon: Icons.workspace_premium_outlined, primary: true,
+          onTap: () => _openSessions(create: true)),
+        action(title: 'Join Group', subtitle: 'I have a group code',
+          icon: Icons.groups_outlined, onTap: () => _openSessions(create: false)),
+      ],
+      Wrap(alignment: WrapAlignment.spaceEvenly, children: [
+        TextButton.icon(onPressed: session == null ? null : _openRecords,
+          icon: const Icon(Icons.insights_outlined), label: const Text('View Results')),
+        TextButton.icon(onPressed: () => showAboutDialog(context: context,
+          applicationName: 'Shape-ify', children: const [
+            Text('Measure local ground orientation using shared star observations.'),
+          ]), icon: const Icon(Icons.info_outline), label: const Text('About')),
+      ]),
+    ]);
   }
 
   Widget _captureView(BuildContext context, SkyTarget? target,
@@ -583,7 +634,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       const Text('Moving to the next star…'),
                     ]))
                   : ActionFirstScroll(
-                      actionId: session?.plan == null ? 'join-group' : p == null
+                      actionId: session?.plan == null ? null : p == null
                         ? 'locate' :
                         completed ? 'view-results' :
                           includedInPlan && plannedWindowOpen && darkNow &&
@@ -591,25 +642,20 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       builder: (scrollController) => ListView(
                         controller: scrollController,
                         padding: const EdgeInsets.all(20), children: [
-                  Text(session?.plan == null
-                      ? 'Join a group to choose stars together'
-                      : 'The group will use these same 3 stars',
+                  if (session?.plan == null) _homePanel(context),
+                  if (session?.plan != null) Text('The group will use these same 3 stars',
                       style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 12),
                   if (error != null) Card(color: Theme.of(context).colorScheme.errorContainer,
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(error!))),
-                  if (session?.plan == null) FilledButton.icon(
-                    onPressed: _openSessions,
-                    icon: const Icon(Icons.group_outlined),
-                    label: const Text('Create or join a group'))
-                  else if (p == null) FilledButton(
+                  if (session?.plan != null && p == null) FilledButton(
                     onPressed: locating ? null : _locate,
                     child: const Text('Use my location'))
-                  else if (completed) FilledButton.icon(
+                  else if (session?.plan != null && completed) FilledButton.icon(
                     onPressed: _openRecords,
                     icon: const Icon(Icons.insights_outlined),
                     label: const Text('View results'))
-                  else FilledButton.icon(
+                  else if (session?.plan != null) FilledButton.icon(
                     onPressed: includedInPlan && plannedWindowOpen &&
                       darkNow && sharedStarsVisibleNow ? _start : null,
                     icon: const Icon(Icons.camera_alt_outlined),
@@ -684,4 +730,38 @@ class _StarReticle extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _StarReticle oldDelegate) => false;
+}
+
+class _HomeHorizon extends CustomPainter {
+  const _HomeHorizon();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rim = Path()
+      ..moveTo(0, size.height * .79)
+      ..quadraticBezierTo(size.width * .5, -size.height * .18,
+        size.width, size.height * .79);
+    final surface = Path.from(rim)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(surface, Paint()..shader = const LinearGradient(
+      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+      colors: [Color(0xFF143978), Color(0x000B1630)],
+    ).createShader(Offset.zero & size));
+    final rimPaint = Paint()..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF56E6FF), Color(0xFFAE6FFA), Color(0xFF56E6FF)],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(rim, rimPaint);
+    final sun = Offset(size.width * .75, size.height * .42625);
+    canvas.drawCircle(sun, 24, Paint()..shader = const RadialGradient(
+      colors: [Color(0xFFFFFFFF), Color(0xFFFFAD4D), Color(0x00FF6D1F)],
+      stops: [0, .14, 1],
+    ).createShader(Rect.fromCircle(center: sun, radius: 24)));
+  }
+
+  @override
+  bool shouldRepaint(covariant _HomeHorizon oldDelegate) => false;
 }
