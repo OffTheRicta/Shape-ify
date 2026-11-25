@@ -680,6 +680,9 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
             children: [
+              if (current == null || phase == 'lobby' || phase == 'planning')
+                Center(child: Image.asset('assets/shapeify-signature.png',
+                  width: 180, excludeFromSemantics: true)),
               if (current == null) ...[
                 const Text(
                   'Create a group or enter the five-letter code from your organizer.',

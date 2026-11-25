@@ -471,12 +471,19 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const SizedBox(height: 16),
-      Text('Shape-ify', textAlign: TextAlign.center,
-        style: theme.textTheme.displaySmall?.copyWith(
-          fontWeight: FontWeight.w800, fontStyle: FontStyle.italic)),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Image.asset('assets/shapeify-mark.png', width: 82,
+          excludeFromSemantics: true),
+        Flexible(child: Text('Shape-ify', textAlign: TextAlign.center,
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w800, fontStyle: FontStyle.italic))),
+      ]),
       const Text('Measure · Construct · Conclude', textAlign: TextAlign.center),
       const SizedBox(height: 12),
-      const SizedBox(height: 116, child: CustomPaint(painter: _HomeHorizon())),
+      ClipRRect(borderRadius: BorderRadius.circular(12),
+        child: AspectRatio(aspectRatio: 898 / 438,
+          child: Image.asset('assets/shapeify-earthrise.jpg',
+            fit: BoxFit.cover, excludeFromSemantics: true))),
       Text('Turn real-world observations into surface geometry',
         textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
       const SizedBox(height: 20),
@@ -730,38 +737,4 @@ class _StarReticle extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _StarReticle oldDelegate) => false;
-}
-
-class _HomeHorizon extends CustomPainter {
-  const _HomeHorizon();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rim = Path()
-      ..moveTo(0, size.height * .79)
-      ..quadraticBezierTo(size.width * .5, -size.height * .18,
-        size.width, size.height * .79);
-    final surface = Path.from(rim)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(surface, Paint()..shader = const LinearGradient(
-      begin: Alignment.topCenter, end: Alignment.bottomCenter,
-      colors: [Color(0xFF143978), Color(0x000B1630)],
-    ).createShader(Offset.zero & size));
-    final rimPaint = Paint()..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF56E6FF), Color(0xFFAE6FFA), Color(0xFF56E6FF)],
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(rim, rimPaint);
-    final sun = Offset(size.width * .75, size.height * .42625);
-    canvas.drawCircle(sun, 24, Paint()..shader = const RadialGradient(
-      colors: [Color(0xFFFFFFFF), Color(0xFFFFAD4D), Color(0x00FF6D1F)],
-      stops: [0, .14, 1],
-    ).createShader(Rect.fromCircle(center: sun, radius: 24)));
-  }
-
-  @override
-  bool shouldRepaint(covariant _HomeHorizon oldDelegate) => false;
 }

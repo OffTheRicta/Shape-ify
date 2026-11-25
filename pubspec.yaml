@@ -23,3 +23,6 @@ flutter:
   assets:
     - assets/family_crest.png
     - assets/logo.png
+    - assets/shapeify-mark.png
+    - assets/shapeify-signature.png
+    - assets/shapeify-earthrise.jpg
