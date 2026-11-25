@@ -49,12 +49,16 @@ class _ResultPlotsState extends State<ResultPlots> {
   bool globe = false;
   double flatYaw = .35, flatPitch = .38, globeYaw = 0;
   int selected = 0;
+  bool dragRotates = false;
   double zoom = 1;
   Offset pan = Offset.zero;
   double gestureZoom = 1;
   double fittedZoom = 1;
   Offset fittedPan = Offset.zero;
   String? fittedKey;
+
+  double _wrapAngle(double angle) =>
+      (angle + math.pi) % (2 * math.pi) - math.pi;
 
   double get _zoomSliderValue =>
       ((math.log(zoom) / math.ln2 + 2) / 16).clamp(0.0, 1.0);
@@ -147,6 +151,14 @@ class _ResultPlotsState extends State<ResultPlots> {
               pan = focal - (focal - details.focalPointDelta - pan) *
                 (next / zoom);
               zoom = next;
+            } else if (dragRotates) {
+              final delta = details.focalPointDelta;
+              if (globe) {
+                globeYaw = _wrapAngle(globeYaw + delta.dx * .01);
+              } else {
+                flatYaw = _wrapAngle(flatYaw + delta.dx * .01);
+                flatPitch = (flatPitch + delta.dy * .01).clamp(-1.35, 1.35);
+              }
             } else {
               pan += details.focalPointDelta;
             }
@@ -217,7 +229,16 @@ class _ResultPlotsState extends State<ResultPlots> {
       Text(globe ? 'Second plot · globe candidate' : 'First plot · flat plane',
         style: Theme.of(context).textTheme.titleLarge),
       const Text('Shared star data · candidate views are illustrative'),
-      const Text('Drag to move · pinch with two fingers to zoom'),
+      Wrap(alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center, children: [
+        Text(dragRotates ? (globe ? 'Drag to rotate' : 'Drag to turn or tilt')
+          : 'Drag to pan'),
+        TextButton(
+          onPressed: () => setState(() => dragRotates = !dragRotates),
+          child: Text(dragRotates ? 'Switch to pan' : 'Switch to rotate'),
+        ),
+      ]),
+      const Text('Pinch with two fingers to zoom.'),
       for (var i = 0; i < records.length; i++)
         TextButton(onPressed: () => setState(() => selected = i),
           child: Text('${i + 1} · ${records[i].observation.observer}')),
