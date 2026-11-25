@@ -7,9 +7,12 @@ import '../astronomy/sky.dart';
 import '../protocol/relay_client.dart';
 import 'scroll_cues.dart';
 
+enum GroupEntry { create, join }
+
 class RelayGroupPage extends StatefulWidget {
   final double? latitude, longitude;
-  const RelayGroupPage({super.key, this.latitude, this.longitude});
+  final GroupEntry? entry;
+  const RelayGroupPage({super.key, this.latitude, this.longitude, this.entry});
   @override
   State<RelayGroupPage> createState() => _RelayGroupPageState();
 }
@@ -665,7 +668,11 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
         ? 'results'
         : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Group')),
+      appBar: AppBar(title: Text(current != null ? 'Group' : switch (widget.entry) {
+        GroupEntry.create => 'Create Group',
+        GroupEntry.join => 'Join Group',
+        null => 'Group',
+      })),
       body: SafeArea(
         child: ActionFirstScroll(
           actionId: actionId,
@@ -674,8 +681,12 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
             children: [
               if (current == null) ...[
-                const Text(
-                  'Create a group or enter the five-letter code from your organizer.',
+                Text(
+                  switch (widget.entry) {
+                    GroupEntry.create => 'Your group gets a five-letter invite code.',
+                    GroupEntry.join => 'Enter the five-letter code from your organizer.',
+                    null => 'Create a group or enter the five-letter code from your organizer.',
+                  },
                 ),
                 if (!demo)
                   const Text(
@@ -688,7 +699,7 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
                     labelText: 'Your tag (optional)',
                   ),
                 ),
-                TextField(
+                if (widget.entry != GroupEntry.create) TextField(
                   controller: code,
                   maxLength: 5,
                   textCapitalization: TextCapitalization.characters,
@@ -700,11 +711,17 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
                   spacing: 10,
                   runSpacing: 8,
                   children: [
-                    FilledButton(
+                    if (widget.entry != GroupEntry.join) FilledButton(
                       onPressed: busy ? null : () => _enter(master: true),
                       child: const Text('Create group'),
                     ),
-                    OutlinedButton(
+                    if (widget.entry == GroupEntry.join) FilledButton(
+                      onPressed: busy || code.text.trim().length != 5
+                          ? null
+                          : () => _enter(master: false),
+                      child: const Text('Join group'),
+                    ),
+                    if (widget.entry == null) OutlinedButton(
                       onPressed: busy || code.text.trim().length != 5
                           ? null
                           : () => _enter(master: false),

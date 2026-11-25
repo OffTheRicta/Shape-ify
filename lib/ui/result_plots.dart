@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../reconstruction/layout.dart';
+import '../reconstruction/spatial_fit.dart';
 
-/// Candidate geometry only. Plotting geographic coordinates on a sphere is a
-/// labelled model; it must never be confused with a fitted surface result.
+/// Flat observation reference and model-dependent spatial station fit.
 class ResultPlots extends StatefulWidget {
   final List<StationPoint> stations;
   final VoidCallback onCheckAgain;
@@ -47,7 +47,8 @@ class ResultViewportFit {
 
 class _ResultPlotsState extends State<ResultPlots> {
   bool globe = false;
-  double flatYaw = .35, flatPitch = .38, globeYaw = 0;
+  bool allPairs = false;
+  double flatYaw = .35, flatPitch = .38;
   int selected = 0;
   double zoom = 1;
   Offset pan = Offset.zero;
@@ -55,6 +56,9 @@ class _ResultPlotsState extends State<ResultPlots> {
   double fittedZoom = 1;
   Offset fittedPan = Offset.zero;
   String? fittedKey;
+  final stageHeader = GlobalKey();
+  List<StationPoint>? fitInput;
+  SpatialFit? spatialFit;
 
   double get _zoomSliderValue =>
       ((math.log(zoom) / math.ln2 + 2) / 16).clamp(0.0, 1.0);
@@ -93,7 +97,8 @@ class _ResultPlotsState extends State<ResultPlots> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || key != fittedKey) return;
       final painter = _CandidatePainter(stations, globe,
-        flatYaw, flatPitch, globeYaw, selected, 1, Offset.zero);
+        flatYaw, flatPitch, 0, selected, 1, Offset.zero, allPairs,
+        globe ? spatialFit : null);
       final fit = ResultViewportFit.calculate(painter._centres(size), size);
       setState(() {
         fittedZoom = zoom = fit.zoom;
@@ -102,11 +107,17 @@ class _ResultPlotsState extends State<ResultPlots> {
     });
   }
 
-  void _showPlot(bool showGlobe) => setState(() {
-    globe = showGlobe;
-    zoom = 1;
-    pan = Offset.zero;
-  });
+  void _showPlot(bool showGlobe) {
+    setState(() {
+      globe = showGlobe;
+      zoom = 1;
+      pan = Offset.zero;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final header = stageHeader.currentContext;
+      if (header != null) Scrollable.ensureVisible(header);
+    });
+  }
 
   @override Widget build(BuildContext context) {
     final records = widget.stations;
@@ -120,10 +131,38 @@ class _ResultPlotsState extends State<ResultPlots> {
           label: const Text('View results on website')),
       ]);
     }
-    final chosen = records[math.min(selected, records.length - 1)];
+    final selectedIndex = math.min(selected, records.length - 1);
+    final chosen = records[selectedIndex];
+    if (globe && !identical(fitInput, records)) {
+      fitInput = records;
+      spatialFit = SpatialFit.solve(records);
+      fittedKey = null;
+    }
+    final fit = globe ? spatialFit : null;
+    final solved = fit?.centresM != null;
+    final pairCount = records.length * (records.length - 1) ~/ 2;
+    final orientation = fit?.orientations[selectedIndex];
+    final hasSimulated = records.any((s) => s.observations.any((o) => o.simulated));
+    final hasReal = records.any((s) => s.observations.any((o) => !o.simulated));
+    final measurementLabel = hasSimulated
+        ? (hasReal ? 'Mixed observations' : 'Simulated observations')
+        : 'Real observations';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Every phone builds the same picture',
+      Text('Every phone builds the same picture', key: stageHeader,
         style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 4),
+      Wrap(
+        spacing: 12,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(globe
+            ? (solved ? '3D station fit' : '3D workspace (fit pending)')
+            : 'Flat observations',
+            style: Theme.of(context).textTheme.titleMedium),
+          Text(measurementLabel, style: Theme.of(context).textTheme.labelMedium),
+        ],
+      ),
       const SizedBox(height: 8),
       SizedBox(height: 340, child: Card(clipBehavior: Clip.hardEdge,
         child: Stack(children: [
@@ -153,20 +192,20 @@ class _ResultPlotsState extends State<ResultPlots> {
           }),
           onTapDown: (details) {
             final painter = _CandidatePainter(records, globe,
-              flatYaw, flatPitch, globeYaw, selected, zoom, pan);
+              flatYaw, flatPitch, 0, selectedIndex, zoom, pan, allPairs, fit);
             final hit = painter.hitTestStation(details.localPosition,
               Size(bounds.maxWidth, bounds.maxHeight));
             if (hit != null) setState(() => selected = hit);
           },
           child: CustomPaint(painter: _CandidatePainter(records, globe,
-            flatYaw, flatPitch, globeYaw, selected, zoom, pan),
+            flatYaw, flatPitch, 0, selectedIndex, zoom, pan, allPairs, fit),
             child: const SizedBox.expand()),
         );
           }),
           Positioned(left: 10, right: 10, bottom: 8,
-            child: IgnorePointer(child: Text(globe
-              ? 'Gold: selected  ·  Green: stations  ·  Faded: far side'
-              : 'Gold: selected  ·  Green: stations',
+            child: IgnorePointer(child: Text(solved
+              ? 'Star residuals · yellow 0° to red 15°+'
+              : 'Gold marks the selected station',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 10, color: Colors.white,
                 shadows: [Shadow(color: Colors.black, blurRadius: 5)])))),
@@ -174,13 +213,7 @@ class _ResultPlotsState extends State<ResultPlots> {
       _compactSlider(context, title: 'Zoom', value: '${zoom.toStringAsFixed(1)}×',
         position: _zoomSliderValue, key: const Key('zoom-slider'),
         onChanged: _setZoomFromSlider),
-      if (globe)
-        _compactSlider(context, title: 'Rotate',
-          value: '${(globeYaw * 180 / math.pi).round()}°',
-          position: (globeYaw + math.pi) / (2 * math.pi),
-          onChanged: (value) => setState(() => globeYaw =
-            value * 2 * math.pi - math.pi))
-      else ...[
+      ...[
         _compactSlider(context, title: 'Turn',
           value: '${(flatYaw * 180 / math.pi).round()}°',
           position: (flatYaw + math.pi) / (2 * math.pi),
@@ -191,19 +224,32 @@ class _ResultPlotsState extends State<ResultPlots> {
           position: (flatPitch + 1.35) / 2.7,
           onChanged: (value) => setState(() => flatPitch =
             value * 2.7 - 1.35)),
-        const Text('The centre axes mark east, north and up.'),
+        if (!globe) const Text('The centre axes mark east, north and up.'),
       ],
-      const Text('Double-tap the plot to refit stations.'),
-      Text('Station ${selected + 1}: ${chosen.observation.observer} · '
-        '${chosen.observations.length} star readings'),
+      if (globe) SwitchListTile(
+        key: const Key('all-pairs-toggle'),
+        title: const Text('Straight lines between every station'),
+        subtitle: Text('$pairCount ${solved ? 'fitted' : 'reference'} '
+          '${pairCount == 1 ? 'pair' : 'pairs'}'),
+        value: allPairs,
+        onChanged: (v) => setState(() => allPairs = v)),
+      const Text('Drag to move · pinch to zoom · double-tap to refit'),
+      Text('Station ${selectedIndex + 1}: ${chosen.observation.observer} · '
+        '${chosen.observations.length} star readings'
+        '${chosen.observation.simulated ? ' · Simulated' : ''}'),
+      if (orientation != null)
+        Text('Star residuals ${orientation.residualsDeg.map((r) => '${r.toStringAsFixed(1)}°').join(', ')}. '
+          'Reported angular uncertainty up to ${orientation.reportedAngularUncertaintyDeg}°. '
+          'Reported GPS uncertainty ${chosen.observation.positionUncertaintyM} m. '
+          '${orientation.magnetic ? 'Magnetic heading frame fitted.' : 'True headings recorded.'}'),
       const SizedBox(height: 8),
       if (!globe) ...[
         FilledButton(onPressed: () => _showPlot(true),
-          child: const Text('Continue to globe plot')),
+          child: const Text('Continue to 3D workspace')),
         TextButton(onPressed: widget.onCheckAgain,
           child: const Text('Check measurements again')),
       ] else FilledButton(onPressed: () => _showPlot(false),
-        child: const Text('Back to flat plot')),
+        child: const Text('Back to flat observations')),
       if (widget.onWebView != null)
         Align(alignment: Alignment.centerLeft, child: FilledButton.tonalIcon(
           key: const Key('view-results-via-web'),
@@ -214,16 +260,35 @@ class _ResultPlotsState extends State<ResultPlots> {
         Text('Session ID: ${widget.sessionId}',
           style: Theme.of(context).textTheme.bodySmall),
       const SizedBox(height: 8),
-      Text(globe ? 'Second plot · globe candidate' : 'First plot · flat plane',
-        style: Theme.of(context).textTheme.titleLarge),
-      const Text('Shared star data · candidate views are illustrative'),
-      const Text('Drag to move · pinch with two fingers to zoom'),
-      for (var i = 0; i < records.length; i++)
-        TextButton(onPressed: () => setState(() => selected = i),
-          child: Text('${i + 1} · ${records[i].observation.observer}')),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (var i = 0; i < records.length; i++)
+            ChoiceChip(
+              label: Text('${i + 1} · ${records[i].observation.observer}'),
+              selected: selectedIndex == i,
+              onSelected: (_) => setState(() => selected = i),
+            ),
+        ],
+      ),
+      if (!globe)
+        for (final reading in chosen.observations.take(3))
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('${reading.starId} · '
+              '${reading.azimuthDeg.toStringAsFixed(1)}° ${reading.azimuthReference} azimuth · '
+              '${reading.altitudeDeg.toStringAsFixed(1)}° elevation'),
+          ),
       Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(globe
-        ? 'Station coordinates on a globe candidate. Far-side discs fade; the surface has not been fitted from the measurements.'
-        : 'Station coordinates on a flat candidate. This is a reference layout, not a fitted ground surface.'))),
+        ? (solved
+          ? 'Patch orientations use the approximate star catalogue and observation UTC. '
+            'GPS chord lengths and horizontal bearings use WGS84 and reported elevations. '
+            'Baseline RMS disagreement ${fit!.baselineRmsM!.toStringAsFixed(1)} m. '
+            'Bearing RMS disagreement ${fit.bearingRmsDeg!.toStringAsFixed(1)}°. '
+            'Centres are relative to their centroid. The fit assumes no baseline slope or surface.'
+          : 'Flat GPS reference positions. ${fit?.unavailableReason ?? ''}')
+        : 'Flat reference projection of stations and original star rays; no measured ground surface is implied.'))),
       if (widget.description != null) ...[
         const SizedBox(height: 8),
         Text(widget.description!, style: Theme.of(context).textTheme.bodySmall),
@@ -246,19 +311,21 @@ class _CandidatePainter extends CustomPainter {
   final int selected;
   final double zoom;
   final Offset pan;
+  final bool allPairs;
+  final SpatialFit? fit;
   const _CandidatePainter(this.stations, this.globe, this.yaw,
-    this.pitch, this.spin, this.selected, this.zoom, this.pan);
+    this.pitch, this.spin, this.selected, this.zoom, this.pan, this.allPairs, this.fit);
   Offset _flat(_P3 p, Size size) {
     final x = p.x * math.cos(yaw) + p.z * math.sin(yaw);
     final z = -p.x * math.sin(yaw) + p.z * math.cos(yaw);
     final y = p.y * math.cos(pitch) - z * math.sin(pitch);
+    if (fit?.centresM != null) {
+      final pixelScale = math.min(size.width, size.height) * .23 * zoom;
+      return Offset(size.width / 2 + pan.dx + x * pixelScale,
+        size.height / 2 + pan.dy - y * pixelScale);
+    }
     return Offset(size.width / 2 + pan.dx + x * size.width * .21 * zoom,
       size.height / 2 + pan.dy - y * size.height * .23 * zoom);
-  }
-  Offset _globe(_P3 p, Size size) {
-    final radius = math.min(size.width, size.height) * .38 * zoom;
-    return Offset(size.width / 2 + pan.dx + p.x * radius,
-      size.height / 2 + pan.dy - p.y * radius);
   }
   void _line(Canvas canvas, Offset a, Offset b, Color color,
       {double stroke = 2}) => canvas.drawLine(a, b,
@@ -282,25 +349,28 @@ class _CandidatePainter extends CustomPainter {
     canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity)
       ..style = PaintingStyle.stroke..strokeWidth = 1.5);
   }
-  (StationPoint, double, double, double) _stationEntry(
-      StationPoint station, double firstLon) {
-    final lat = station.observation.latitude * math.pi / 180;
-    final lon = (station.observation.longitude - firstLon) * math.pi / 180 - spin;
-    return (station, lat, lon, math.cos(lat) * math.cos(lon));
+  _P3 _viewVector(SpatialVector vector) {
+    final reference = fit!.orientations.first!;
+    return _P3(vector.dot(reference.east), vector.dot(reference.north),
+      vector.dot(reference.up));
   }
-  List<Offset> _centres(Size size) {
+
+  List<_P3> _coordinates() {
+    final solved = fit?.centresM;
+    if (solved != null) {
+      final extent = solved.map((p) => p.length).reduce(math.max);
+      return [for (final point in solved) _viewVector(point.scale(1 / extent))];
+    }
     if (stations.isEmpty) return [];
     final lon = stations.first.observation.longitude;
     final lat = stations.first.observation.latitude;
     return [for (final station in stations)
-      globe ? _globe(_P3(
-        math.cos(station.observation.latitude * math.pi / 180) *
-          math.sin((station.observation.longitude - lon) * math.pi / 180 - spin),
-        math.sin(station.observation.latitude * math.pi / 180), 0), size)
-      : _flat(_P3(
+      _P3(
         ((station.observation.longitude - lon + 540) % 360 - 180) / 70,
-        (station.observation.latitude - lat) / 55, 0), size)];
+        (station.observation.latitude - lat) / 55, 0)];
   }
+  List<Offset> _centres(Size size) =>
+      [for (final point in _coordinates()) _flat(point, size)];
   int? hitTestStation(Offset local, Size size) {
     final anchors = _centres(size);
     for (var i = 0; i < anchors.length; i++) {
@@ -318,13 +388,9 @@ class _CandidatePainter extends CustomPainter {
         Offset(size.width, i * size.height / 8), grid);
     }
     if (stations.isEmpty) return;
-    final firstLon = stations.first.observation.longitude;
-    final firstLat = stations.first.observation.latitude;
+    final coords = _coordinates();
     if (!globe) {
       Offset project(_P3 p) => _flat(p, size);
-      final coords = [for (final s in stations) _P3(
-        ((s.observation.longitude - firstLon + 540) % 360 - 180) / 70,
-        (s.observation.latitude - firstLat) / 55, 0)];
       for (var i = 0; i < coords.length - 1; i++) {
         _line(canvas, project(coords[i]), project(coords[i + 1]),
           const Color(0xff718979), stroke: 1);
@@ -344,60 +410,58 @@ class _CandidatePainter extends CustomPainter {
         final c = i == selected ? const Color(0xfff9e8a1) : const Color(0xff91eeb0);
         _disc(canvas, project, centre, const _P3(1, 0, 0),
           const _P3(0, 1, 0), c, 1);
-        final o = stations[i].observations.first;
-        final a = o.azimuthDeg * math.pi / 180;
-        final h = o.altitudeDeg * math.pi / 180;
-        final end = centre + _P3(math.sin(a) * math.cos(h),
-          math.cos(a) * math.cos(h), math.sin(h)).scale(.37 / zoom);
-        _line(canvas, project(centre), project(end), c, stroke: 2.5);
+        for (var j = 0; j < stations[i].observations.length && j < 3; j++) {
+          final o = stations[i].observations[j];
+          final a = o.azimuthDeg * math.pi / 180;
+          final h = o.altitudeDeg * math.pi / 180;
+          final target = centre + _P3(math.sin(a) * math.cos(h),
+            math.cos(a) * math.cos(h), math.sin(h)).scale(.37 / zoom);
+          final colors = [const Color(0xffffdc69),
+            const Color(0xffff8f79), const Color(0xffbb9bff)];
+          _line(canvas, project(centre), project(target), colors[j], stroke: 2);
+        }
         _label(canvas, '${i + 1}', project(centre) + const Offset(4, 8), c);
       }
     } else {
-      final r = math.min(size.width, size.height) * .38 * zoom;
-      final centre = Offset(size.width / 2 + pan.dx, size.height / 2 + pan.dy);
-      final points = [for (final s in stations) _stationEntry(s, firstLon)];
-      void drawStation((StationPoint, double, double, double) entry, int index) {
-        final lat = entry.$2, lon = entry.$3, depth = entry.$4;
-        final normal = _P3(math.cos(lat) * math.sin(lon), math.sin(lat), depth);
-        final east = _P3(math.cos(lon), 0, -math.sin(lon));
-        final north = _P3(-math.sin(lat) * math.sin(lon), math.cos(lat),
-          -math.sin(lat) * math.cos(lon));
-        Offset project(_P3 p) => _globe(p, size);
-        final color = index == selected ? const Color(0xffffe79c) :
-          const Color(0xffa4f8b4);
-        final opacity = depth < 0 ? .22 : 1.0;
-        final surface = normal;
-        _disc(canvas, project, surface, east, north, color, opacity);
-        final o = entry.$1.observations.first;
-        final az = o.azimuthDeg * math.pi / 180;
-        final el = o.altitudeDeg * math.pi / 180;
-        final ray = east.scale(math.sin(az) * math.cos(el)) +
-          north.scale(math.cos(az) * math.cos(el)) +
-          normal.scale(math.sin(el));
-        _line(canvas, project(surface), project(surface + ray.scale(.23 / zoom)),
-          color.withValues(alpha: opacity));
-        _label(canvas, '${index + 1}', project(surface) + const Offset(3, 6),
-          color.withValues(alpha: opacity));
+      Offset project(_P3 point) => _flat(point, size);
+      if (allPairs) {
+        for (var i = 0; i < coords.length; i++) {
+          for (var j = i + 1; j < coords.length; j++) {
+            _line(canvas, project(coords[i]), project(coords[j]),
+              const Color(0x668d75c8), stroke: .7);
+          }
+        }
       }
-      for (var i = 0; i < points.length; i++) {
-        if (points[i].$4 < 0) drawStation(points[i], i);
-      }
-      if (r <= 2000) {
-        canvas.drawCircle(centre, r, Paint()..color = const Color(0xb8265548));
-        canvas.drawCircle(centre, r, Paint()..color = const Color(0xff8cdbac)
-          ..style = PaintingStyle.stroke..strokeWidth = 1.5);
-      } else {
-        // At high zoom the sphere spans many screens. Paint its local patch.
-        canvas.drawRect(Offset.zero & size,
-          Paint()..color = const Color(0x50265548));
-      }
-      for (var i = 0; i < points.length; i++) {
-        if (points[i].$4 >= 0) drawStation(points[i], i);
+      for (var i = 0; i < stations.length; i++) {
+        final centre = coords[i];
+        final c = i == selected ? const Color(0xffffe79c)
+          : const Color(0xff6be0e9);
+        final orientation = fit?.centresM == null ? null : fit!.orientations[i];
+        _disc(canvas, project, centre,
+          orientation == null ? const _P3(1, 0, 0) : _viewVector(orientation.east),
+          orientation == null ? const _P3(0, 1, 0) : _viewVector(orientation.north),
+          c, 1);
+        for (var j = 0; j < stations[i].observations.length && j < 3; j++) {
+          final reading = stations[i].observations[j];
+          final ray = reading.localRay;
+          final direction = orientation == null
+              ? _P3(ray[0], ray[1], ray[2])
+              : _viewVector(orientation.ray(reading));
+          final residual = orientation?.residualsDeg[j];
+          final color = residual == null
+              ? const Color(0xffffdc69)
+              : Color.lerp(const Color(0xffffdc69), const Color(0xfff44336),
+                  (residual / 15).clamp(0.0, 1.0))!;
+          _line(canvas, project(centre), project(centre + direction.scale(.37 / zoom)),
+            color, stroke: 2);
+        }
+        _label(canvas, (i + 1).toString(),
+          project(centre) + const Offset(4, 8), c);
       }
     }
   }
   @override bool shouldRepaint(covariant _CandidatePainter old) =>
     old.globe != globe || old.yaw != yaw || old.pitch != pitch ||
     old.spin != spin || old.selected != selected || old.stations != stations ||
-    old.zoom != zoom || old.pan != pan;
+    old.zoom != zoom || old.pan != pan || old.allPairs != allPairs || old.fit != fit;
 }

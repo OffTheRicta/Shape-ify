@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// Approximate catalog guidance. These predictions are never solver inputs.
+/// Approximate catalogue coordinates for guidance and optional model fitting.
 class GuideStar {
   final String name;
   final double raHours, decDeg, magnitude;

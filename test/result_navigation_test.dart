@@ -18,14 +18,14 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(
       child: ResultPlots(stations: StationLayout.arrange([_sight('A')]),
         onCheckAgain: () {})))));
-    final continueButton = find.text('Continue to globe plot');
+    final continueButton = find.text('Continue to 3D workspace');
     expect(tester.getTopLeft(continueButton).dy,
       greaterThan(tester.getTopLeft(find.byKey(const Key('result-viewport'))).dy));
     expect(find.textContaining('DEMO'), findsNothing);
     await tester.ensureVisible(continueButton);
     await tester.tap(continueButton);
     await tester.pump();
-    final backButton = find.text('Back to flat plot');
+    final backButton = find.text('Back to flat observations');
     expect(backButton, findsOneWidget);
     expect(find.textContaining('Drag to move'), findsOneWidget);
   });
@@ -45,12 +45,11 @@ void main() {
     expect(tester.getTopLeft(zoom).dy, lessThan(tester.getTopLeft(web).dy));
     expect(tester.getTopLeft(web).dy,
       lessThan(tester.getTopLeft(explanation).dy));
-    expect(find.text('Gold: selected  ·  Green: stations'), findsOneWidget);
-    await tester.ensureVisible(find.text('Continue to globe plot'));
-    await tester.tap(find.text('Continue to globe plot'));
+    expect(find.text('Gold marks the selected station'), findsOneWidget);
+    await tester.ensureVisible(find.text('Continue to 3D workspace'));
+    await tester.tap(find.text('Continue to 3D workspace'));
     await tester.pump();
-    expect(find.text('Gold: selected  ·  Green: stations  ·  Faded: far side'),
-      findsOneWidget);
+    expect(find.text('Gold marks the selected station'), findsOneWidget);
   });
 
   testWidgets('web action reports the currently visible candidate', (tester) async {
@@ -64,7 +63,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(web);
     expect(requested, [false]);
-    final next = find.text('Continue to globe plot');
+    final next = find.text('Continue to 3D workspace');
     await tester.ensureVisible(next);
     await tester.tap(next);
     await tester.pump();
@@ -137,14 +136,32 @@ void main() {
     tester.widget<Slider>(zoomSlider).onChanged!(.5);
     await tester.pump();
     expect(find.text('64.0×'), findsOneWidget);
-    await tester.ensureVisible(find.text('Continue to globe plot'));
-    await tester.tap(find.text('Continue to globe plot'));
+    await tester.ensureVisible(find.text('Continue to 3D workspace'));
+    await tester.tap(find.text('Continue to 3D workspace'));
     await tester.pump();
     await tester.pump();
     expect(zoomSlider, findsOneWidget);
     tester.widget<Slider>(zoomSlider).onChanged!(.25);
     await tester.pump();
     expect(find.text('4.0×'), findsOneWidget);
+  });
+
+  testWidgets('3D reference view offers straight line connections', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(
+      child: ResultPlots(stations: StationLayout.arrange([_sight('A'), _sight('B')]),
+        onCheckAgain: () {})))));
+    await tester.ensureVisible(find.text('Continue to 3D workspace'));
+    await tester.tap(find.text('Continue to 3D workspace'));
+    await tester.pump();
+    expect(find.textContaining('fit pending'), findsOneWidget);
+    expect(find.byKey(const Key('all-pairs-toggle')), findsOneWidget);
+    expect(find.text('1 reference pair'), findsOneWidget);
+    final control = tester.widget<SwitchListTile>(
+      find.byKey(const Key('all-pairs-toggle')));
+    control.onChanged!(true);
+    await tester.pump();
+    expect(tester.widget<SwitchListTile>(
+      find.byKey(const Key('all-pairs-toggle'))).value, isTrue);
   });
 
   testWidgets('step change replaces top action and status updates keep scroll', (tester) async {
