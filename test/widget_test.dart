@@ -27,15 +27,14 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(opacity('intro-logo'), closeTo(1, 1e-12));
     await tester.pump(const Duration(seconds: 1));
-    // After the intro, group setup is the first visible screen. A location
+    // After the intro, Home is the first visible screen. A location
     // request must not hold it behind a full-screen spinner.
     for (var frame = 0; frame < 20 &&
-        find.text('Create group').evaluate().isEmpty; frame++) {
+        find.text('Create Group').evaluate().isEmpty; frame++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    expect(find.text('Group'), findsOneWidget);
-    expect(find.text('Create group'), findsOneWidget);
-    expect(find.text('Join group'), findsOneWidget);
+    expect(find.text('Create Group'), findsOneWidget);
+    expect(find.text('Join Group'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }
