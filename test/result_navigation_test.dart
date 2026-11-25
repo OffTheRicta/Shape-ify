@@ -27,7 +27,7 @@ void main() {
     await tester.pump();
     final backButton = find.text('Back to flat plot');
     expect(backButton, findsOneWidget);
-    expect(find.textContaining('Drag to move'), findsOneWidget);
+    expect(find.text('Drag to pan'), findsOneWidget);
   });
 
   testWidgets('title, plot, controls, actions, then explanation', (tester) async {
