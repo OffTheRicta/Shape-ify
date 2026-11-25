@@ -15,7 +15,6 @@ import '../protocol/session_repository.dart';
 import '../protocol/relay_client.dart';
 import 'home.dart';
 import 'relay_group_page.dart';
-import 'gauges.dart';
 import 'scroll_cues.dart';
 
 class GuidedHome extends StatefulWidget {
@@ -451,6 +450,109 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Widget _captureView(BuildContext context, SkyTarget? target,
+      double? azTurn, double? upTurn) {
+    final reading = direction;
+    final guide = <String>[
+      if (azTurn != null && azTurn.abs() >= 18)
+        'Turn ${azTurn > 0 ? 'right' : 'left'} ${azTurn.abs().round()}°',
+      if (upTurn != null && upTurn.abs() >= 18)
+        'Aim ${upTurn > 0 ? 'higher' : 'lower'} ${upTurn.abs().round()}°',
+    ];
+    final theme = Theme.of(context);
+    final controller = camera!;
+    const edge = Color(0xFFFF292F);
+    Widget cue(Alignment alignment, bool vertical) => Align(
+      alignment: alignment,
+      child: FractionallySizedBox(
+        widthFactor: vertical ? null : .72,
+        heightFactor: vertical ? .72 : null,
+        child: Container(
+          width: vertical ? 4 : null,
+          height: vertical ? null : 4,
+          decoration: BoxDecoration(
+            color: edge,
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: const [BoxShadow(color: edge, blurRadius: 14, spreadRadius: 2)],
+          ),
+        ),
+      ),
+    );
+
+    return ColoredBox(
+      color: const Color(0xFF040711),
+      child: Column(children: [
+        Row(children: [
+          IconButton(
+            tooltip: 'Exit star capture',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: captureInProgress ? null : () async {
+              await _stopCamera();
+              if (mounted) setState(() => aiming = false);
+            },
+          ),
+          Expanded(child: Column(children: [
+            Text('Observe Star ${starIndex + 1} of ${stars.length}'),
+            Text(target?.star.name ?? stars[starIndex].star.name,
+              style: theme.textTheme.titleLarge),
+          ])),
+          const SizedBox(width: 48),
+        ]),
+        const SizedBox(height: 8),
+        Expanded(child: ClipRect(child: Stack(fit: StackFit.expand, children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: controller.value.previewSize!.height,
+              height: controller.value.previewSize!.width,
+              child: CameraPreview(controller),
+            ),
+          ),
+          IgnorePointer(child: Stack(fit: StackFit.expand, children: [
+            if (azTurn != null && azTurn.abs() >= 18)
+              cue(azTurn > 0 ? Alignment.centerRight : Alignment.centerLeft, true),
+            if (upTurn != null && upTurn.abs() >= 18)
+              cue(upTurn > 0 ? Alignment.topCenter : Alignment.bottomCenter, false),
+            const Center(child: CustomPaint(
+              size: Size.square(82), painter: _StarReticle())),
+          ])),
+        ]))),
+        Padding(padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+          child: Column(children: [
+            Text(reading == null ? 'Waiting for motion and compass sensors…'
+                : guide.isEmpty ? 'Centre the star and hold steady' : guide.join(' · '),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: reading != null && guide.isEmpty
+                ? const Color(0xFFB2EE77) : Colors.white)),
+            const SizedBox(height: 4),
+            Text('Confirm the star by eye. The compass guide is approximate.',
+              textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Card(child: Padding(padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(children: [
+                Expanded(child: Text(
+                  'Elevation\n${reading == null ? '—' : '${reading.altitudeDeg.toStringAsFixed(1)}°'}',
+                  textAlign: TextAlign.center)),
+                Expanded(child: Text(
+                  'Azimuth (magnetic)\n${reading == null ? '—' : '${reading.magneticAzimuthDeg.toStringAsFixed(1)}°'}',
+                  textAlign: TextAlign.center)),
+              ]))),
+            const SizedBox(height: 4),
+            IconButton(
+              tooltip: captureInProgress ? 'Recording reading' : 'Record centred star',
+              onPressed: reading == null || captureInProgress ? null : _capture,
+              iconSize: 48,
+              color: Colors.white,
+              icon: captureInProgress
+                ? const SizedBox.square(dimension: 32, child: CircularProgressIndicator())
+                : const Icon(Icons.radio_button_checked),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final p = position;
     final target = aiming && p != null && starIndex < stars.length
@@ -461,7 +563,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
             direction!.magneticAzimuthDeg) : null;
     final upTurn = target != null && direction != null
         ? target.altitudeDeg - direction!.altitudeDeg : null;
-    return Scaffold(appBar: AppBar(title: const Text('Shape-ify'),
+    final liveCapture = aiming && camera?.value.isInitialized == true;
+    return Scaffold(appBar: liveCapture ? null : AppBar(title: const Text('Shape-ify'),
         actions: [IconButton(tooltip: 'Group sessions', icon: const Icon(Icons.group_outlined),
           onPressed: _openSessions),
           IconButton(tooltip: 'Results & sharing',
@@ -470,56 +573,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       body: SafeArea(child: loading
           ? const Center(child: CircularProgressIndicator())
           : aiming && camera != null && camera!.value.isInitialized
-              ? Column(children: [
-                  Padding(padding: const EdgeInsets.all(14), child: Column(children: [
-                    Text('Star ${starIndex + 1} of ${stars.length}: ${target!.star.name}',
-                        style: Theme.of(context).textTheme.headlineSmall),
-                    const Text('Look with your eyes first. Aim the REAR camera at the star.'),
-                  ])),
-                  Expanded(child: LayoutBuilder(builder: (context, available) => Center(
-                    child: SizedBox(
-                      width: math.min(320, available.maxWidth),
-                      height: math.min(240, available.maxHeight),
-                      child: ClipRRect(borderRadius: BorderRadius.circular(14),
-                        child: Stack(fit: StackFit.expand, children: [
-                    CameraPreview(camera!),
-                    const Center(child: IgnorePointer(child: Icon(Icons.crop_free,
-                        color: Colors.amberAccent, size: 130))),
-                    if (direction == null) const Center(child: Card(child: Padding(
-                        padding: EdgeInsets.all(8),
-                        child: Text('Waiting for motion and magnetic sensors…')))),
-                    if (direction != null) Positioned(left: 12, bottom: 12,
-                        child: HeadingGauge(headingDeg: direction!.magneticAzimuthDeg)),
-                    if (direction != null) Positioned(right: 12, top: 12,
-                        child: ElevationGauge(elevationDeg: direction!.altitudeDeg)),
-                  ])))))),
-                  Container(width: double.infinity, color: Colors.black87,
-                      padding: const EdgeInsets.all(14), child: Column(children: [
-                        if (azTurn == null || upTurn == null)
-                          const Text('Hold the phone steady',
-                            style: TextStyle(color: Colors.white, fontSize: 17))
-                        else ...[
-                          Text(azTurn.abs() < 18 ? 'Direction close' :
-                            'Turn ${azTurn > 0 ? 'right' : 'left'} about ${azTurn.abs().round()}°',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 17)),
-                          Text(upTurn.abs() < 18 ? 'Height close' :
-                            '${upTurn > 0 ? 'Aim higher' : 'Aim lower'} about ${upTurn.abs().round()}°',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 17)),
-                        ],
-                        const Text('Compass is magnetic and approximate. Guide may be off.',
-                            style: TextStyle(color: Colors.white70)),
-                        const SizedBox(height: 8),
-                        const Text('Tap when the star is centered in the screen and you can see it with your own eyes.',
-                          textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
-                        const SizedBox(height: 8),
-                        FilledButton(
-                          onPressed: direction == null || captureInProgress ? null : _capture,
-                          child: Text(captureInProgress ? 'Recording ${target.star.name}…' :
-                            'Star centered — record ${target.star.name}')),
-                      ])),
-                ])
+              ? _captureView(context, target, azTurn, upTurn)
               : aiming && demo
                   ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                       const CircularProgressIndicator(),
@@ -608,4 +662,26 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                   const Text('No photo or video is saved. Location, time and sensor direction stay on this phone until you choose to share. Confirm each star with your own eyes.'),
                 ]))));
   }
+}
+
+class _StarReticle extends CustomPainter {
+  const _StarReticle();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centre = size.center(Offset.zero);
+    final radius = size.width * .36;
+    final stroke = Paint()
+      ..color = const Color(0xFFFF464B)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(centre, radius, stroke);
+    for (final axis in const [Offset(1, 0), Offset(-1, 0), Offset(0, 1), Offset(0, -1)]) {
+      canvas.drawLine(centre + axis * (radius - 5),
+        centre + axis * (radius + 8), stroke);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarReticle oldDelegate) => false;
 }
