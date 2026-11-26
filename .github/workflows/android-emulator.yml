@@ -31,11 +31,14 @@ jobs:
           mkdir -p emulator-results
           sudo setfacl -m "u:$USER:rw" /dev/kvm
           image='system-images;android-35;google_apis;x86_64'
-          sdkmanager 'emulator' "$image"
+          sdk_root="${ANDROID_HOME:?Android SDK root is missing}"
+          sdk_tools="$sdk_root/cmdline-tools/latest/bin"
+          export PATH="$sdk_tools:$sdk_root/emulator:$sdk_root/platform-tools:$PATH"
+          "$sdk_tools/sdkmanager" 'emulator' "$image"
           adb start-server
 
           for port in 5554 5556; do
-            echo no | avdmanager create avd -n "shapeify-$port" -k "$image" -d pixel_6
+            avdmanager create avd -n "shapeify-$port" -k "$image" -d pixel_6 <<< no
             emulator -avd "shapeify-$port" -port "$port" -no-window -no-audio \
               -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 1536 \
               > "emulator-results/$port-emulator.log" 2>&1 &
