@@ -17,18 +17,16 @@ jobs:
         with:
           flutter-version: '3.47.5'
       - run: flutter pub get
-      - run: flutter build apk --debug --target-platform android-arm64
+      - name: Build universal Android preview APK
+        run: flutter build apk --debug --target-platform android-arm,android-arm64,android-x64
+      - name: Verify Flutter engine architectures
+        run: |
+          unzip -Z1 build/app/outputs/flutter-apk/app-debug.apk > apk-entries.txt
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            grep -Fx "lib/$abi/libflutter.so" apk-entries.txt
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: Shape-ify-Android-preview
-          path: build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 7
-      - name: Build x86-64 emulator APK
-        run: |
-          flutter build apk --debug --target-platform android-x64
-          unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep 'lib/x86_64/libflutter.so'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Shape-ify-Android-emulator-x86_64
           path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
