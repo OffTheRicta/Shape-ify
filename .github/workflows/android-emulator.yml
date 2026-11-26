@@ -35,10 +35,13 @@ jobs:
           sdk_tools="$sdk_root/cmdline-tools/latest/bin"
           export PATH="$sdk_tools:$sdk_root/emulator:$sdk_root/platform-tools:$PATH"
           "$sdk_tools/sdkmanager" 'emulator' "$image"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/shapeify-avds"
+          mkdir -p "$ANDROID_AVD_HOME"
           adb start-server
 
           for port in 5554 5556; do
             avdmanager create avd -n "shapeify-$port" -k "$image" -d pixel_6 <<< no
+            test -f "$ANDROID_AVD_HOME/shapeify-$port.ini"
             emulator -avd "shapeify-$port" -port "$port" -no-window -no-audio \
               -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 1536 \
               > "emulator-results/$port-emulator.log" 2>&1 &
@@ -85,6 +88,9 @@ jobs:
             timeout 20 adb -s "emulator-$port" exec-out screencap -p > "emulator-results/$port.png" || true
             timeout 20 adb -s "emulator-$port" logcat -d > "emulator-results/$port-logcat.txt" || true
           done
+          if [[ "$result" != 0 ]]; then
+            cat emulator-results/*-emulator.log
+          fi
           exit "$result"
       - uses: actions/upload-artifact@v4
         if: always()
