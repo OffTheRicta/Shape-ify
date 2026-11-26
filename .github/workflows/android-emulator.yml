@@ -1,0 +1,91 @@
+name: Shape-ify two Android emulators
+on:
+  push:
+    branches: [codex/android-emulator-test]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Build Android APK
+        run: |
+          python3 tools/configure_android.py
+          flutter pub get
+          flutter build apk --debug --dart-define=SHAPEIFY_RELAY_URL=http://127.0.0.1:1
+      - name: Boot two phones and check startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p emulator-results
+          sudo setfacl -m "u:$USER:rw" /dev/kvm
+          image='system-images;android-35;google_apis;x86_64'
+          sdkmanager 'emulator' "$image"
+          adb start-server
+
+          for port in 5554 5556; do
+            echo no | avdmanager create avd -n "shapeify-$port" -k "$image" -d pixel_6
+            emulator -avd "shapeify-$port" -port "$port" -no-window -no-audio \
+              -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 1536 \
+              > "emulator-results/$port-emulator.log" 2>&1 &
+          done
+
+          check_phone() {
+            local serial="emulator-$1"
+            local package=shapeify.roundhound.info
+            local apk=build/app/outputs/flutter-apk/app-debug.apk
+            local output="emulator-results/$1"
+            timeout 240 adb -s "$serial" wait-for-device
+            for attempt in {1..90}; do
+              if [[ $(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]; then
+                break
+              fi
+              sleep 2
+            done
+            [[ $(adb -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]]
+            adb -s "$serial" shell input keyevent 82
+            adb -s "$serial" install "$apk"
+            adb -s "$serial" shell am start -W -n "$package/com.example.roundhound.MainActivity"
+            for attempt in {1..15}; do
+              adb -s "$serial" shell uiautomator dump /sdcard/shapeify.xml >/dev/null || true
+              adb -s "$serial" shell cat /sdcard/shapeify.xml > "$output-ui.xml" || true
+              if grep -Eq 'text="Shape-ify"|content-desc="Shape-ify"' "$output-ui.xml"; then
+                adb -s "$serial" shell pidof "$package"
+                echo "$serial reached the Shape-ify screen"
+                return
+              fi
+              sleep 2
+            done
+            echo "$serial did not reach the Shape-ify screen" >&2
+            return 1
+          }
+
+          result=0
+          for port in 5554 5556; do
+            (set -e; check_phone "$port") &
+            if [[ "$port" == 5554 ]]; then first=$!; else second=$!; fi
+          done
+          wait "$first" || result=1
+          wait "$second" || result=1
+          for port in 5554 5556; do
+            timeout 20 adb -s "emulator-$port" exec-out screencap -p > "emulator-results/$port.png" || true
+            timeout 20 adb -s "emulator-$port" logcat -d > "emulator-results/$port-logcat.txt" || true
+          done
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shapeify-android-emulator-results
+          path: emulator-results/
