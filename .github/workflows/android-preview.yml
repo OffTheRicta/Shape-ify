@@ -23,3 +23,12 @@ jobs:
           name: Shape-ify-Android-preview
           path: build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
+      - name: Build x86-64 emulator APK
+        run: |
+          flutter build apk --debug --target-platform android-x64
+          unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep 'lib/x86_64/libflutter.so'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shape-ify-Android-emulator-x86_64
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
