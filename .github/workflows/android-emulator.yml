@@ -5,26 +5,25 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   smoke:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v4
+      - name: Download Android preview APK
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.5'
-          channel: stable
-          cache: true
-      - name: Build Android APK
+          name: Shape-ify-Android-preview
+          run-id: 45605751133
+          github-token: ${{ github.token }}
+          path: preview
+      - name: Locate preview APK
         run: |
-          python3 tools/configure_android.py
-          flutter pub get
-          flutter build apk --debug --dart-define=SHAPEIFY_RELAY_URL=http://127.0.0.1:1
+          mapfile -t apks < <(find preview -type f -name '*.apk')
+          test "${#apks[@]}" -eq 1
+          mkdir -p build/app/outputs/flutter-apk
+          cp "${apks[0]}" build/app/outputs/flutter-apk/app-debug.apk
       - name: Boot two phones and check startup
         shell: bash
         run: |
