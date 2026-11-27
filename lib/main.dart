@@ -15,9 +15,16 @@ class RoundhoundApp extends StatelessWidget {
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF5AD8ED), brightness: Brightness.dark),
+        seedColor: const Color(0xFFB16AFF), brightness: Brightness.dark),
       scaffoldBackgroundColor: Colors.transparent,
-      appBarTheme: const AppBarTheme(backgroundColor: Color(0xE8171B26)),
+      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF080D1A)),
+      cardTheme: const CardThemeData(color: Color(0xFF111B2D)),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
     ),
     builder: (context, child) => LaunchSequence(child: child),
     home: const GuidedHome());

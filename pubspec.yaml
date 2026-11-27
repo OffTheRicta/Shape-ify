@@ -1,5 +1,5 @@
 name: roundhound
-version: 0.1.0+39
+version: 0.1.0+40
 description: Phone-only star and ground-angle experiment with a message relay.
 publish_to: none
 environment:
@@ -23,3 +23,6 @@ flutter:
   assets:
     - assets/family_crest.png
     - assets/logo.png
+    - assets/shapeify-mark.png
+    - assets/shapeify-signature.png
+    - assets/shapeify-earthrise.jpg

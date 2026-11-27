@@ -9,7 +9,8 @@ import 'scroll_cues.dart';
 
 class RelayGroupPage extends StatefulWidget {
   final double? latitude, longitude;
-  const RelayGroupPage({super.key, this.latitude, this.longitude});
+  final bool? createOnEntry;
+  const RelayGroupPage({super.key, this.latitude, this.longitude, this.createOnEntry});
   @override
   State<RelayGroupPage> createState() => _RelayGroupPageState();
 }
@@ -665,7 +666,13 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
         ? 'results'
         : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Group')),
+      appBar: AppBar(title: Text(current != null
+        ? phase == 'lobby' ? 'Group Lobby' : 'Group'
+        : switch (widget.createOnEntry) {
+            true => 'Create Group',
+            false => 'Join Group',
+            null => 'Group',
+          })),
       body: SafeArea(
         child: ActionFirstScroll(
           actionId: actionId,
@@ -673,6 +680,9 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
             children: [
+              if (current == null || phase == 'lobby' || phase == 'planning')
+                Center(child: Image.asset('assets/shapeify-signature.png',
+                  width: 180, excludeFromSemantics: true)),
               if (current == null) ...[
                 const Text(
                   'Create a group or enter the five-letter code from your organizer.',
@@ -688,7 +698,7 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
                     labelText: 'Your tag (optional)',
                   ),
                 ),
-                TextField(
+                if (widget.createOnEntry != true) TextField(
                   controller: code,
                   maxLength: 5,
                   textCapitalization: TextCapitalization.characters,
@@ -700,11 +710,11 @@ class _RelayGroupPageState extends State<RelayGroupPage> {
                   spacing: 10,
                   runSpacing: 8,
                   children: [
-                    FilledButton(
+                    if (widget.createOnEntry != false) FilledButton(
                       onPressed: busy ? null : () => _enter(master: true),
                       child: const Text('Create group'),
                     ),
-                    OutlinedButton(
+                    if (widget.createOnEntry != true) OutlinedButton(
                       onPressed: busy || code.text.trim().length != 5
                           ? null
                           : () => _enter(master: false),

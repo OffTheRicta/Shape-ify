@@ -15,7 +15,6 @@ import '../protocol/session_repository.dart';
 import '../protocol/relay_client.dart';
 import 'home.dart';
 import 'relay_group_page.dart';
-import 'gauges.dart';
 import 'scroll_cues.dart';
 
 class GuidedHome extends StatefulWidget {
@@ -31,7 +30,6 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
   RelayIdentity? relay;
   String? error;
   bool loading = true, locating = false, aiming = false, completed = false;
-  bool initialGroupOpened = false;
   bool captureInProgress = false;
   int starIndex = 0;
   List<SkyTarget> stars = [];
@@ -58,15 +56,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       if (relay != null) observer = relay!.tag;
       await prefs.setString('stationName', observer);
       if (!mounted) return;
-      // The first screen is group setup/status. Location can be obtained there
-      // and must never block navigation behind a full-screen spinner.
       setState(() => loading = false);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !initialGroupOpened) {
-          initialGroupOpened = true;
-          unawaited(_openSessions());
-        }
-      });
     } catch (e) {
       if (mounted) setState(() { error = 'Could not open local session: $e'; loading = false; });
     }
@@ -404,7 +394,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openSessions() async {
+  Future<void> _openSessions({bool? create}) async {
     if (aiming) {
       await _stopCamera();
       if (!mounted) return;
@@ -413,7 +403,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     if (!mounted) return;
     final openCamera = await Navigator.push<bool>(context,
         MaterialPageRoute(builder: (_) => RelayGroupPage(
-          latitude: position?.latitude, longitude: position?.longitude)));
+          latitude: position?.latitude, longitude: position?.longitude,
+          createOnEntry: create)));
     final current = await SessionRepository.active();
     final newRelay = await RelayStore.read();
     if (mounted) {
@@ -451,6 +442,175 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Widget _homePanel(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget action({
+      required String title,
+      required String subtitle,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool primary = false,
+    }) => Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: primary
+          ? const BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xFF873CD2), Color(0xFF462173)]))
+          : null,
+        child: ListTile(
+          leading: Icon(icon, color: Colors.white),
+          title: Text(title, style: theme.textTheme.titleLarge),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      ),
+    );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const SizedBox(height: 16),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Image.asset('assets/shapeify-mark.png', width: 82,
+          excludeFromSemantics: true),
+        Flexible(child: Text('Shape-ify', textAlign: TextAlign.center,
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w800, fontStyle: FontStyle.italic))),
+      ]),
+      const Text('Measure · Construct · Conclude', textAlign: TextAlign.center),
+      const SizedBox(height: 12),
+      ClipRRect(borderRadius: BorderRadius.circular(12),
+        child: AspectRatio(aspectRatio: 898 / 438,
+          child: Image.asset('assets/shapeify-earthrise.jpg',
+            fit: BoxFit.cover, excludeFromSemantics: true))),
+      Text('Turn real-world observations into surface geometry',
+        textAlign: TextAlign.center, style: theme.textTheme.titleMedium),
+      const SizedBox(height: 20),
+      if (relay != null)
+        action(title: 'Open Group', subtitle: relay!.code,
+          icon: Icons.groups_outlined, primary: true, onTap: _openSessions)
+      else ...[
+        action(title: 'Create Group', subtitle: 'I’m the organiser',
+          icon: Icons.workspace_premium_outlined, primary: true,
+          onTap: () => _openSessions(create: true)),
+        action(title: 'Join Group', subtitle: 'I have a group code',
+          icon: Icons.groups_outlined, onTap: () => _openSessions(create: false)),
+      ],
+      Wrap(alignment: WrapAlignment.spaceEvenly, children: [
+        TextButton.icon(onPressed: session == null ? null : _openRecords,
+          icon: const Icon(Icons.insights_outlined), label: const Text('View Results')),
+        TextButton.icon(onPressed: () => showAboutDialog(context: context,
+          applicationName: 'Shape-ify', children: const [
+            Text('Measure local ground orientation using shared star observations.'),
+          ]), icon: const Icon(Icons.info_outline), label: const Text('About')),
+      ]),
+    ]);
+  }
+
+  Widget _captureView(BuildContext context, SkyTarget? target,
+      double? azTurn, double? upTurn) {
+    final reading = direction;
+    final guide = <String>[
+      if (azTurn != null && azTurn.abs() >= 18)
+        'Turn ${azTurn > 0 ? 'right' : 'left'} ${azTurn.abs().round()}°',
+      if (upTurn != null && upTurn.abs() >= 18)
+        'Aim ${upTurn > 0 ? 'higher' : 'lower'} ${upTurn.abs().round()}°',
+    ];
+    final theme = Theme.of(context);
+    final controller = camera!;
+    const edge = Color(0xFFFF292F);
+    Widget cue(Alignment alignment, bool vertical) => Align(
+      alignment: alignment,
+      child: FractionallySizedBox(
+        widthFactor: vertical ? null : .72,
+        heightFactor: vertical ? .72 : null,
+        child: Container(
+          width: vertical ? 4 : null,
+          height: vertical ? null : 4,
+          decoration: BoxDecoration(
+            color: edge,
+            borderRadius: BorderRadius.circular(4),
+            boxShadow: const [BoxShadow(color: edge, blurRadius: 14, spreadRadius: 2)],
+          ),
+        ),
+      ),
+    );
+
+    return ColoredBox(
+      color: const Color(0xFF040711),
+      child: Column(children: [
+        Row(children: [
+          IconButton(
+            tooltip: 'Exit star capture',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: captureInProgress ? null : () async {
+              await _stopCamera();
+              if (mounted) setState(() => aiming = false);
+            },
+          ),
+          Expanded(child: Column(children: [
+            Text('Observe Star ${starIndex + 1} of ${stars.length}'),
+            Text(target?.star.name ?? stars[starIndex].star.name,
+              style: theme.textTheme.titleLarge),
+          ])),
+          const SizedBox(width: 48),
+        ]),
+        const SizedBox(height: 8),
+        Expanded(child: ClipRect(child: Stack(fit: StackFit.expand, children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: controller.value.previewSize!.height,
+              height: controller.value.previewSize!.width,
+              child: CameraPreview(controller),
+            ),
+          ),
+          IgnorePointer(child: Stack(fit: StackFit.expand, children: [
+            if (azTurn != null && azTurn.abs() >= 18)
+              cue(azTurn > 0 ? Alignment.centerRight : Alignment.centerLeft, true),
+            if (upTurn != null && upTurn.abs() >= 18)
+              cue(upTurn > 0 ? Alignment.topCenter : Alignment.bottomCenter, false),
+            const Center(child: CustomPaint(
+              size: Size.square(82), painter: _StarReticle())),
+          ])),
+        ]))),
+        Padding(padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+          child: Column(children: [
+            Text(reading == null ? 'Waiting for motion and compass sensors…'
+                : guide.isEmpty ? 'Centre the star and hold steady' : guide.join(' · '),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: reading != null && guide.isEmpty
+                ? const Color(0xFFB2EE77) : Colors.white)),
+            const SizedBox(height: 4),
+            Text('Confirm the star by eye. The compass guide is approximate.',
+              textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+            const SizedBox(height: 4),
+            Card(child: Padding(padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(children: [
+                Expanded(child: Text(
+                  'Elevation\n${reading == null ? '—' : '${reading.altitudeDeg.toStringAsFixed(1)}°'}',
+                  textAlign: TextAlign.center)),
+                Expanded(child: Text(
+                  'Azimuth (magnetic)\n${reading == null ? '—' : '${reading.magneticAzimuthDeg.toStringAsFixed(1)}°'}',
+                  textAlign: TextAlign.center)),
+              ]))),
+            const SizedBox(height: 4),
+            IconButton(
+              tooltip: captureInProgress ? 'Recording reading' : 'Record centred star',
+              onPressed: reading == null || captureInProgress ? null : _capture,
+              iconSize: 48,
+              color: Colors.white,
+              icon: captureInProgress
+                ? const SizedBox.square(dimension: 32, child: CircularProgressIndicator())
+                : const Icon(Icons.radio_button_checked),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final p = position;
     final target = aiming && p != null && starIndex < stars.length
@@ -461,7 +621,8 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
             direction!.magneticAzimuthDeg) : null;
     final upTurn = target != null && direction != null
         ? target.altitudeDeg - direction!.altitudeDeg : null;
-    return Scaffold(appBar: AppBar(title: const Text('Shape-ify'),
+    final liveCapture = aiming && camera?.value.isInitialized == true;
+    return Scaffold(appBar: liveCapture ? null : AppBar(title: const Text('Shape-ify'),
         actions: [IconButton(tooltip: 'Group sessions', icon: const Icon(Icons.group_outlined),
           onPressed: _openSessions),
           IconButton(tooltip: 'Results & sharing',
@@ -470,56 +631,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
       body: SafeArea(child: loading
           ? const Center(child: CircularProgressIndicator())
           : aiming && camera != null && camera!.value.isInitialized
-              ? Column(children: [
-                  Padding(padding: const EdgeInsets.all(14), child: Column(children: [
-                    Text('Star ${starIndex + 1} of ${stars.length}: ${target!.star.name}',
-                        style: Theme.of(context).textTheme.headlineSmall),
-                    const Text('Look with your eyes first. Aim the REAR camera at the star.'),
-                  ])),
-                  Expanded(child: LayoutBuilder(builder: (context, available) => Center(
-                    child: SizedBox(
-                      width: math.min(320, available.maxWidth),
-                      height: math.min(240, available.maxHeight),
-                      child: ClipRRect(borderRadius: BorderRadius.circular(14),
-                        child: Stack(fit: StackFit.expand, children: [
-                    CameraPreview(camera!),
-                    const Center(child: IgnorePointer(child: Icon(Icons.crop_free,
-                        color: Colors.amberAccent, size: 130))),
-                    if (direction == null) const Center(child: Card(child: Padding(
-                        padding: EdgeInsets.all(8),
-                        child: Text('Waiting for motion and magnetic sensors…')))),
-                    if (direction != null) Positioned(left: 12, bottom: 12,
-                        child: HeadingGauge(headingDeg: direction!.magneticAzimuthDeg)),
-                    if (direction != null) Positioned(right: 12, top: 12,
-                        child: ElevationGauge(elevationDeg: direction!.altitudeDeg)),
-                  ])))))),
-                  Container(width: double.infinity, color: Colors.black87,
-                      padding: const EdgeInsets.all(14), child: Column(children: [
-                        if (azTurn == null || upTurn == null)
-                          const Text('Hold the phone steady',
-                            style: TextStyle(color: Colors.white, fontSize: 17))
-                        else ...[
-                          Text(azTurn.abs() < 18 ? 'Direction close' :
-                            'Turn ${azTurn > 0 ? 'right' : 'left'} about ${azTurn.abs().round()}°',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 17)),
-                          Text(upTurn.abs() < 18 ? 'Height close' :
-                            '${upTurn > 0 ? 'Aim higher' : 'Aim lower'} about ${upTurn.abs().round()}°',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 17)),
-                        ],
-                        const Text('Compass is magnetic and approximate. Guide may be off.',
-                            style: TextStyle(color: Colors.white70)),
-                        const SizedBox(height: 8),
-                        const Text('Tap when the star is centered in the screen and you can see it with your own eyes.',
-                          textAlign: TextAlign.center, style: TextStyle(color: Colors.white)),
-                        const SizedBox(height: 8),
-                        FilledButton(
-                          onPressed: direction == null || captureInProgress ? null : _capture,
-                          child: Text(captureInProgress ? 'Recording ${target.star.name}…' :
-                            'Star centered — record ${target.star.name}')),
-                      ])),
-                ])
+              ? _captureView(context, target, azTurn, upTurn)
               : aiming && demo
                   ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                       const CircularProgressIndicator(),
@@ -529,7 +641,7 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       const Text('Moving to the next star…'),
                     ]))
                   : ActionFirstScroll(
-                      actionId: session?.plan == null ? 'join-group' : p == null
+                      actionId: session?.plan == null ? null : p == null
                         ? 'locate' :
                         completed ? 'view-results' :
                           includedInPlan && plannedWindowOpen && darkNow &&
@@ -537,25 +649,20 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                       builder: (scrollController) => ListView(
                         controller: scrollController,
                         padding: const EdgeInsets.all(20), children: [
-                  Text(session?.plan == null
-                      ? 'Join a group to choose stars together'
-                      : 'The group will use these same 3 stars',
+                  if (session?.plan == null) _homePanel(context),
+                  if (session?.plan != null) Text('The group will use these same 3 stars',
                       style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 12),
                   if (error != null) Card(color: Theme.of(context).colorScheme.errorContainer,
                       child: Padding(padding: const EdgeInsets.all(12), child: Text(error!))),
-                  if (session?.plan == null) FilledButton.icon(
-                    onPressed: _openSessions,
-                    icon: const Icon(Icons.group_outlined),
-                    label: const Text('Create or join a group'))
-                  else if (p == null) FilledButton(
+                  if (session?.plan != null && p == null) FilledButton(
                     onPressed: locating ? null : _locate,
                     child: const Text('Use my location'))
-                  else if (completed) FilledButton.icon(
+                  else if (session?.plan != null && completed) FilledButton.icon(
                     onPressed: _openRecords,
                     icon: const Icon(Icons.insights_outlined),
                     label: const Text('View results'))
-                  else FilledButton.icon(
+                  else if (session?.plan != null) FilledButton.icon(
                     onPressed: includedInPlan && plannedWindowOpen &&
                       darkNow && sharedStarsVisibleNow ? _start : null,
                     icon: const Icon(Icons.camera_alt_outlined),
@@ -608,4 +715,26 @@ class _GuidedHomeState extends State<GuidedHome> with WidgetsBindingObserver {
                   const Text('No photo or video is saved. Location, time and sensor direction stay on this phone until you choose to share. Confirm each star with your own eyes.'),
                 ]))));
   }
+}
+
+class _StarReticle extends CustomPainter {
+  const _StarReticle();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centre = size.center(Offset.zero);
+    final radius = size.width * .36;
+    final stroke = Paint()
+      ..color = const Color(0xFFFF464B)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(centre, radius, stroke);
+    for (final axis in const [Offset(1, 0), Offset(-1, 0), Offset(0, 1), Offset(0, -1)]) {
+      canvas.drawLine(centre + axis * (radius - 5),
+        centre + axis * (radius + 8), stroke);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarReticle oldDelegate) => false;
 }
